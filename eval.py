@@ -22,9 +22,40 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 @click.option('-c', '--checkpoint', required=True)
 @click.option('-o', '--output_dir', required=True)
 @click.option('-d', '--device', default='cuda:0')
+
 def main(checkpoint, output_dir, device):
-    if os.path.exists(output_dir):
-        click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
+
+
+    def clear_directory(directory):
+        import os
+        import shutil
+
+        if os.path.exists(directory):
+            shutil.rmtree(directory)  # Remove the directory and all its contents
+        os.makedirs(directory)  # Recreate the directory
+
+    def convert_step_images_to_gif():
+
+        # if output.mp4 exists, delete
+        if os.path.exists('diff_batches.mp4'):
+            os.remove('diff_batches.mp4')
+
+        if os.path.exists('diff_traj.mp4'):
+            os.remove('diff_traj.mp4')
+
+        # turn the image steps into a video
+        os.system("ffmpeg -framerate 3 -i plots/diff_batches/step%d.png -c:v libx264 -r 30 diff_batches.mp4")
+
+        os.system("ffmpeg -framerate 3 -i plots/diff_traj/step%d.png -c:v libx264 -r 30 diff_traj.mp4")
+
+    clear_directory('plots/diff_batches')
+    clear_directory('plots/diff_traj')
+    clear_directory('plots/rotated')
+
+
+    # Commented out -- always overrides. easier to debug
+    # if os.path.exists(output_dir):
+    #     click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # load checkpoint
@@ -60,5 +91,7 @@ def main(checkpoint, output_dir, device):
     out_path = os.path.join(output_dir, 'eval_log.json')
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
 
+    convert_step_images_to_gif()
+    
 if __name__ == '__main__':
     main()
