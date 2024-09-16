@@ -25,32 +25,34 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
 def main(checkpoint, output_dir, device):
 
-
-    def clear_directory(directory):
+    def clear_directory(batches):
         import os
         import shutil
 
-        if os.path.exists(directory):
-            shutil.rmtree(directory)  # Remove the directory and all its contents
-        os.makedirs(directory)  # Recreate the directory
+        for batch_dir in batches:
+            directory = f'plots/batch_{batch_dir}'
 
-    def convert_step_images_to_gif():
+            if os.path.exists(directory):
+                shutil.rmtree(directory)  # Remove the directory and all its contents
+            os.makedirs(directory)  # Recreate the directory
 
-        # if output.mp4 exists, delete
-        if os.path.exists('diff_batches.mp4'):
-            os.remove('diff_batches.mp4')
+    def convert_step_images_to_gif(batches):
+        
+        for batch_dir in batches:
+            mp4_filename = f'batch_{batch_dir}.mp4'
+            images_pattern = f'plots/batch_{batch_dir}/step_%d.png'
+            
+            # Remove the existing MP4 file if it exists
+            if os.path.exists(mp4_filename):
+                os.remove(mp4_filename)
+            
+            # Convert images to video using ffmpeg
+            os.system(f"ffmpeg -framerate 3 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
-        if os.path.exists('diff_traj.mp4'):
-            os.remove('diff_traj.mp4')
-
-        # turn the image steps into a video
-        os.system("ffmpeg -framerate 3 -i plots/diff_batches/step%d.png -c:v libx264 -r 30 diff_batches.mp4")
-
-        os.system("ffmpeg -framerate 3 -i plots/diff_traj/step%d.png -c:v libx264 -r 30 diff_traj.mp4")
-
-    clear_directory('plots/diff_batches')
-    clear_directory('plots/diff_traj')
-    clear_directory('plots/rotated')
+    
+    batches = [0, 5, 10]
+    
+    clear_directory(batches)
 
 
     # Commented out -- always overrides. easier to debug
@@ -91,7 +93,7 @@ def main(checkpoint, output_dir, device):
     out_path = os.path.join(output_dir, 'eval_log.json')
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
 
-    convert_step_images_to_gif()
+    convert_step_images_to_gif(batches)
     
 if __name__ == '__main__':
     main()
