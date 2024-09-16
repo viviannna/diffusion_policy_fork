@@ -22,9 +22,42 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 @click.option('-c', '--checkpoint', required=True)
 @click.option('-o', '--output_dir', required=True)
 @click.option('-d', '--device', default='cuda:0')
+
 def main(checkpoint, output_dir, device):
-    if os.path.exists(output_dir):
-        click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
+
+    def clear_directory(batches):
+        import os
+        import shutil
+
+        for batch_dir in batches:
+            directory = f'plots/batch_{batch_dir}'
+
+            if os.path.exists(directory):
+                shutil.rmtree(directory)  # Remove the directory and all its contents
+            os.makedirs(directory)  # Recreate the directory
+
+    def convert_step_images_to_gif(batches):
+        
+        for batch_dir in batches:
+            mp4_filename = f'batch_{batch_dir}.mp4'
+            images_pattern = f'plots/batch_{batch_dir}/step_%d.png'
+            
+            # Remove the existing MP4 file if it exists
+            if os.path.exists(mp4_filename):
+                os.remove(mp4_filename)
+            
+            # Convert images to video using ffmpeg
+            os.system(f"ffmpeg -framerate 3 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
+
+    
+    batches = [0, 5, 10]
+    
+    clear_directory(batches)
+
+
+    # Commented out -- always overrides. easier to debug
+    # if os.path.exists(output_dir):
+    #     click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # load checkpoint
@@ -60,5 +93,7 @@ def main(checkpoint, output_dir, device):
     out_path = os.path.join(output_dir, 'eval_log.json')
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
 
+    convert_step_images_to_gif(batches)
+    
 if __name__ == '__main__':
     main()
