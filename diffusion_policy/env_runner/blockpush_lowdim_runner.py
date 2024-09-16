@@ -277,7 +277,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         plt.text(text_x, text_y_start - (vertical_offset*9), f'Block 1 Distance Traveled: {block_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
         plt.text(text_x, text_y_start - (vertical_offset*10), f'Block 2 Distance Traveled: {block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-        # Print the distance traveled
+        # Print the total distance traveled
+        plt.text(text_x, text_y_start - (vertical_offset*11), f'Total Distance Blocks Traveled: {block_distance + block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
+
         
 
    
@@ -416,6 +418,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             past_action = None
             policy.reset()
 
+            # create a dictionary per batch that keeps track of the past 3 distances traveled by the blocks. 
+            past_distances_traveled = dict()
+
             pbar = tqdm.tqdm(total=self.max_steps, desc=f"Eval BlockPushLowdimRunner {chunk_idx+1}/{n_chunks}", 
                 leave=False, mininterval=self.tqdm_interval_sec)
             done = False
@@ -454,16 +459,14 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 # update pbar
                 pbar.update(action.shape[1])
 
-                self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=0)
-
-                self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=5)
-
-                self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=10)
+                # Plot trajectories for the 3 batches of focus
+                batches = [0, 5, 10]
+                for batch in batches: 
+                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch)
                 obs_before = obs
                 step += 1
             pbar.close()
        
-
 
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
