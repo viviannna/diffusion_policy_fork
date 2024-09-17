@@ -22,6 +22,8 @@ import matplotlib.cm as cm
 import matplotlib.patches as patches
 import matplotlib.colors as mcolors
 
+from collections import deque
+
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
             output_dir,
@@ -174,8 +176,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
 
         text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.05  # Vertical space between lines
-        
+        vertical_offset = 0.025  # Vertical space between lines
+       
         plt.text(text_x, text_y_start - (vertical_offset*2), f'Desired Trajectory End Point: ({x_coords[-1]:.4f}, {y_coords[-1]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
 
 
@@ -219,6 +221,39 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         # Set aspect ratio to be equal to maintain the shape of the rectangle
         plt.gca().set_aspect('equal', adjustable='box')
+
+    def get_total_block_distance(self, obs_before, obs_after, batch): 
+        obs_step = 0
+
+        block_before= {
+            'x': obs_before[batch][obs_step][0].item(), 
+            'y': obs_before[batch][obs_step][1].item(),
+            'orientation': obs_before[batch][obs_step][2].item()
+        }
+        block2_before = {
+            'x': obs_before[batch][obs_step][3].item(), 
+            'y': obs_before[batch][obs_step][4].item(),
+            'orientation': obs_before[batch][obs_step][5]
+        }
+        
+        block_after = {
+            'x': obs_after[batch][obs_step][0], 
+            'y': obs_after[batch][obs_step][1],
+            'orientation': obs_after[batch][obs_step][2]
+        }
+        block2_after = {
+            'x': obs_after[batch][obs_step][3], 
+            'y': obs_after[batch][obs_step][4],
+            'orientation': obs_after[batch][obs_step][5]
+        }
+
+        block_1_distance = self.get_block_distance(block_before, block_after)
+        block_2_distance = self.get_block_distance(block2_before, block2_after)
+
+        block_distance = block_1_distance + block_2_distance
+
+        return block_distance
+        
 
     def get_block_distance(self, block_before, block_after):
         x1, y1 = block_before['x'], block_before['y']
@@ -265,7 +300,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         # Print values
         text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.05  # Vertical space between lines
+        vertical_offset = 0.025  # Vertical space between lines
         
         plt.text(text_x, text_y_start - (vertical_offset*3), f'Block 1 Position (After): ({block_before["x"]:.4f}, {block_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
         plt.text(text_x, text_y_start - (vertical_offset*4), f'Block 2 Position (After): ({block2_before["x"]:.4f}, {block2_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
@@ -341,8 +376,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         # Calculate efector distance traveled
         effector_distance = self.get_effector_distance(starting_effector_actual, effector_actual)
 
+        self.total_effector_distance[batch].append(effector_distance)
+
         text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.05  # Vertical space between lines
+        vertical_offset = 0.025  # Vertical space between lines
 
         # Print final effector values 
         plt.text(text_x, text_y_start, f'Effector Value (Actual): ({effector_actual["x"]:.4f}, {effector_actual["y"]:.4f})', color='green', fontsize=9, transform=plt.gca().transAxes)
@@ -355,18 +392,28 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.text(text_x, text_y_start - (vertical_offset*8), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
+    def plot_reset(self, step, past_five):
+        
+        past_five = past_five.sum().item()
+        text_x, text_y_start = 0.05, 0.95
+        vertical_offset = 0.025  # Vertical space between lines
+        RESET_THRESHOLD = 0.001 
+        if past_five < RESET_THRESHOLD and step >= 5:
+            plt.text(text_x, text_y_start - (vertical_offset*12), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
 
+
+
+
+    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch, past_five):
 
         
-
-    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch):
-
         
         plt.figure(figsize=(12, 12))
         self.plot_targets(obs_after=obs_after, batch=batch)
         self.plot_blocks(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch)
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
+        self.plot_reset(step=step, past_five=past_five)
 
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
@@ -376,6 +423,24 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         plt.xlim(-0.5, 1.0)
         plt.ylim(-1.0, 0.5)
         plt.savefig(f"plots/batch_{batch}/step_{step}.png", bbox_inches='tight')
+        plt.close()
+
+    def plot_effector_distances(self):
+
+        for batch in [0, 5, 10]:
+
+            distances = self.total_effector_distance[batch]
+            plt.figure(figsize=(12, 6))
+            plt.plot(distances, marker='o', linestyle='-', color='blue', label='Effector Distance')
+            plt.xlabel('Time Step')
+            plt.ylabel('Effector Distance')
+            plt.title(f'Batch: {batch}; Effector Distance Over Time')
+            plt.legend(loc='upper right')
+            plt.grid(True)
+            plt.savefig(f"batch_{batch}_effector_distances_over_time.png", bbox_inches='tight')
+            plt.close()
+            
+
     
 
 
@@ -418,55 +483,78 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             past_action = None
             policy.reset()
 
-            # create a dictionary per batch that keeps track of the past 3 distances traveled by the blocks. 
-            past_distances_traveled = dict()
-
             pbar = tqdm.tqdm(total=self.max_steps, desc=f"Eval BlockPushLowdimRunner {chunk_idx+1}/{n_chunks}", 
                 leave=False, mininterval=self.tqdm_interval_sec)
             done = False
+
+            num_batches = obs.shape[0]
+            distance_rolling_lists = {batch: deque(maxlen=5) for batch in range(num_batches)}
+
+            self.total_effector_distance = dict()
+            for batch in [0, 5, 10]:
+                self.total_effector_distance[batch] = []
+
+
             while not done:
-                # create obs dict
+                # Create obs dict
                 if not self.obs_eef_target:
-                    obs[...,8:10] = 0
+                    obs[..., 8:10] = 0
+
+                # Create a 2D array for distance rolling lists
+                rolling_lists_array = np.zeros((num_batches, 5), dtype=np.float32)
+                for batch in range(num_batches):
+                    # Ensure the deque has exactly 5 elements, fill with zeros if not
+                    distances = np.array(distance_rolling_lists[batch])
+                    if len(distances) < 5:
+                        distances = np.concatenate([np.zeros(5 - len(distances)), distances])
+                    rolling_lists_array[batch, :] = distances
+
+                # Add step to np_obs_dict
                 np_obs_dict = {
-                    'obs': obs.astype(np.float32)
+                    'obs': obs.astype(np.float32),
+                    'distance_rolling_list': rolling_lists_array,
+                    'step': np.array([step], dtype=np.float32)  # Step should be a 1D array for consistency
                 }
                 if self.past_action and (past_action is not None):
-                    # TODO: not tested
-                    np_obs_dict['past_action'] = past_action[
-                        :,-(self.n_obs_steps-1):].astype(np.float32)
-                # device transfer
-                obs_dict = dict_apply(np_obs_dict, 
-                    lambda x: torch.from_numpy(x).to(
-                        device=device))
-            
-            
-                # run policy
+                    np_obs_dict['past_action'] = past_action[:, -(self.n_obs_steps-1):].astype(np.float32)
+
+                # Device transfer
+                obs_dict = dict_apply(np_obs_dict, lambda x: torch.from_numpy(x).to(device=device))
+
+                # Run policy
                 with torch.no_grad():
                     action_dict = policy.predict_action(obs_dict)
 
-                # device_transfer
-                np_action_dict = dict_apply(action_dict,
-                    lambda x: x.detach().to('cpu').numpy())
+                # Device transfer
+                np_action_dict = dict_apply(action_dict, lambda x: x.detach().to('cpu').numpy())
 
-                action = np_action_dict['action'] # this is the
+                action = np_action_dict['action']
 
-                # step env
+                # Step env
                 obs, reward, done, info = env.step(action)
                 done = np.all(done)
                 past_action = action
 
-                # update pbar
+                # Update pbar
                 pbar.update(action.shape[1])
 
-                # Plot trajectories for the 3 batches of focus
-                batches = [0, 5, 10]
-                for batch in batches: 
-                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch)
+                # Compute distance traveled by blocks and update rolling lists
+                for batch in range(num_batches):
+                    distance_traveled = self.get_total_block_distance(obs_before=obs_before, obs_after=obs, batch=batch)
+                    distance_rolling_lists[batch].append(distance_traveled)
+
+                
+                # Plot trajectories for each batch of focus
+                for batch in [0, 5, 10]:  # Focus on specific batches for plotting
+                    past_five = obs_dict['distance_rolling_list'][batch]
+                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, past_five=past_five)
+
                 obs_before = obs
                 step += 1
+
             pbar.close()
-       
+
+            self.plot_effector_distances()
 
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
