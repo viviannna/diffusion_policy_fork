@@ -23,6 +23,8 @@ import matplotlib.patches as patches
 import matplotlib.colors as mcolors
 
 from collections import deque
+import matplotlib
+matplotlib.use('Agg')
 
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
@@ -174,11 +176,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         for j in range(action_horizon):
             plt.scatter(x_coords[j], y_coords[j], color=colors[j], label=f'Batch {batch+1}' if j == 0 and batch == 0 else "", edgecolor='k')
 
-
-        text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.025  # Vertical space between lines
        
-        plt.text(text_x, text_y_start - (vertical_offset*2), f'Desired Trajectory End Point: ({x_coords[-1]:.4f}, {y_coords[-1]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Desired Trajectory End Point: ({x_coords[-1]:.4f}, {y_coords[-1]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
 
 
     def plot_rectangles(self, x, y, orientation, color, label, goal_dist_tolerance=0.05, opacity=1.0):
@@ -222,7 +221,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         # Set aspect ratio to be equal to maintain the shape of the rectangle
         plt.gca().set_aspect('equal', adjustable='box')
 
-    def get_total_block_distance(self, obs_before, obs_after, batch): 
+    def get_total_block_distance_traveled(self, obs_before, obs_after, batch): 
+        """
+        Used only when doing total distance traveled for blocks on the outside loop. Similar functionality to plot blocks and its use of get_block_distance() but without plotting. 
+        """
         obs_step = 0
 
         block_before= {
@@ -247,15 +249,66 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             'orientation': obs_after[batch][obs_step][5]
         }
 
-        block_1_distance = self.get_block_distance(block_before, block_after)
-        block_2_distance = self.get_block_distance(block2_before, block2_after)
+        block_1_distance = self.get_distance_between_blocks(block_before, block_after)
+        block_2_distance = self.get_distance_between_blocks(block2_before, block2_after)
 
         block_distance = block_1_distance + block_2_distance
 
         return block_distance
+    
+    def plot_distance_from_target(self, batch, obs_after):
+
+        obs_step = 1 # (Most recent)
+
+        block = {
+        'x': obs_after[batch][obs_step][0], 
+        'y': obs_after[batch][obs_step][1],
+        'orientation': obs_after[batch][obs_step][2]
+        }
+         
+        block2 = {
+            'x': obs_after[batch][obs_step][3], 
+            'y': obs_after[batch][obs_step][4],
+            'orientation': obs_after[batch][obs_step][5]
+        }
+
+        target = {
+            'x': obs_after[batch][obs_step][10], 
+            'y': obs_after[batch][obs_step][11],
+        }
+        target2 = {
+            'x': obs_after[batch][obs_step][13], 
+            'y': obs_after[batch][obs_step][14],
+        }
+
+        block_to_target = self.get_distance_between_blocks(block, target)
+        block_to_target2 = self.get_distance_between_blocks(block, target2)
+
+        block2_to_target = self.get_distance_between_blocks(block2, target)
+        block2_to_target2 = self.get_distance_between_blocks(block2, target2)
+
+        self.total_block_to_target_distance[batch].append(block_to_target)
+        self.total_block_to_target2_distance[batch].append(block_to_target2)
+        self.total_block2_to_target_distance[batch].append(block2_to_target)
+        self.total_block2_to_target2_distance[batch].append(block2_to_target2)
+
+        def in_target_range(distance):
+            if distance <= 0.05:
+                return 'green'
+            else:
+                return 'black'
+
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 1 to Target 1: {block_to_target:.4f}', color=in_target_range(block_to_target), fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 1 to Target 2: {block_to_target2:.4f}', color=in_target_range(block_to_target2), fontsize=9, transform=plt.gca().transAxes)
+
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 2 to Target 1: {block2_to_target:.4f}', color=in_target_range(block2_to_target), fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 2 to Target 2: {block2_to_target2:.4f}', color=in_target_range(block2_to_target2), fontsize=9, transform=plt.gca().transAxes)
+
+
+        return block_to_target, block_to_target2, block2_to_target, block2_to_target2
         
 
-    def get_block_distance(self, block_before, block_after):
+    def get_distance_between_blocks(self, block_before, block_after):
         x1, y1 = block_before['x'], block_before['y']
         x2, y2 = block_after['x'], block_after['y']
 
@@ -299,21 +352,21 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_rectangles(block2_after['x'], block2_after['y'], block2_after['orientation'], 'orange', 'Block2 After', opacity=1.0)
 
         # Print values
-        text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.025  # Vertical space between lines
-        
-        plt.text(text_x, text_y_start - (vertical_offset*3), f'Block 1 Position (After): ({block_before["x"]:.4f}, {block_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
-        plt.text(text_x, text_y_start - (vertical_offset*4), f'Block 2 Position (After): ({block2_before["x"]:.4f}, {block2_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 1 Position (After): ({block_before["x"]:.4f}, {block_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 2 Position (After): ({block2_before["x"]:.4f}, {block2_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-        block_distance = self.get_block_distance(block_before, block_after)
-        block2_distance = self.get_block_distance(block2_before, block2_after)
+        block_distance = self.get_distance_between_blocks(block_before, block_after)
+        block2_distance = self.get_distance_between_blocks(block2_before, block2_after)
+
+        self.total_block_distance_traveled[batch].append(block_distance)
+        self.total_block2_distance_traveled[batch].append(block2_distance)
 
         # Print the distance traveled
-        plt.text(text_x, text_y_start - (vertical_offset*9), f'Block 1 Distance Traveled: {block_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
-        plt.text(text_x, text_y_start - (vertical_offset*10), f'Block 2 Distance Traveled: {block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 1 Distance Traveled: {block_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 2 Distance Traveled: {block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
         # Print the total distance traveled
-        plt.text(text_x, text_y_start - (vertical_offset*11), f'Total Distance Blocks Traveled: {block_distance + block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Total Distance Blocks Traveled: {block_distance + block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
         
 
@@ -378,33 +431,34 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         self.total_effector_distance[batch].append(effector_distance)
 
-        text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.025  # Vertical space between lines
-
         # Print final effector values 
-        plt.text(text_x, text_y_start, f'Effector Value (Actual): ({effector_actual["x"]:.4f}, {effector_actual["y"]:.4f})', color='green', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start, f'Effector Value (Actual): ({effector_actual["x"]:.4f}, {effector_actual["y"]:.4f})', color='green', fontsize=9, transform=plt.gca().transAxes)
 
-        plt.text(text_x, text_y_start - vertical_offset, f'Effector Value (Target): ({effector_target["x"]:.4f}, {effector_target["y"]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - self.get_vertical_offset(batch=batch), f'Effector Value (Target): ({effector_target["x"]:.4f}, {effector_target["y"]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
 
         # Print starting effector values
-        plt.text(text_x, text_y_start - (vertical_offset*6), f'Effector Value (Actual, At Start): ({starting_effector_actual["x"]:.4f}, {starting_effector_actual["y"]:.4f})', color='teal', fontsize=9, transform=plt.gca().transAxes)
-        plt.text(text_x, text_y_start - (vertical_offset*7), f'Effector Value (Target, At Start): ({starting_effector_target["x"]:.4f}, {starting_effector_target["y"]:.4f})', color='purple', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Value (Actual, At Start): ({starting_effector_actual["x"]:.4f}, {starting_effector_actual["y"]:.4f})', color='teal', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Value (Target, At Start): ({starting_effector_target["x"]:.4f}, {starting_effector_target["y"]:.4f})', color='purple', fontsize=9, transform=plt.gca().transAxes)
 
-        plt.text(text_x, text_y_start - (vertical_offset*8), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
+        plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-    def plot_reset(self, step, past_five):
+    def plot_reset(self, step, past_five, batch):
         
-        past_five = past_five.sum().item()
-        text_x, text_y_start = 0.05, 0.95
-        vertical_offset = 0.025  # Vertical space between lines
+        past_five = past_five[batch].sum().item()
         RESET_THRESHOLD = 0.001 
         if past_five < RESET_THRESHOLD and step >= 5:
-            plt.text(text_x, text_y_start - (vertical_offset*12), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
+            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
+
+    def plot_done(self, batch, done):
+
+        if np.all(done[batch]):
+            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Done!', color='green', fontsize=9, transform=plt.gca().transAxes)
+            return True
+        return False
 
 
 
-
-    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch, past_five):
+    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch, past_five, done):
 
         
         
@@ -413,8 +467,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_blocks(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch)
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
-        self.plot_reset(step=step, past_five=past_five)
-
+        self.plot_distance_from_target(batch=batch, obs_after=obs_after)
+        if not(self.plot_done(batch=batch, done=done)):
+            self.plot_reset(step=step, past_five=past_five, batch=batch)
+        
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
         plt.ylabel('Y Position')
@@ -425,25 +481,44 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         plt.savefig(f"plots/batch_{batch}/step_{step}.png", bbox_inches='tight')
         plt.close()
 
-    def plot_effector_distances(self):
+    def plot_total_distances(self):
 
         for batch in [0, 5, 10]:
 
-            distances = self.total_effector_distance[batch]
+            effector_distances = self.total_effector_distance[batch]
+            block_distances_traveled = self.total_block_distance_traveled[batch]
+            block2_distances_traveled = self.total_block2_distance_traveled[batch]
+
+            block_to_target_distances = self.total_block_to_target_distance[batch]
+            block_to_target2_distances = self.total_block_to_target2_distance[batch]
+            block2_to_target_distances = self.total_block2_to_target_distance[batch]
+            block2_to_target2_distances = self.total_block2_to_target2_distance[batch]
+            
             plt.figure(figsize=(12, 6))
-            plt.plot(distances, marker='o', linestyle='-', color='blue', label='Effector Distance')
+            plt.plot(effector_distances, marker='o', linestyle='-', color='blue', label='Effector Distance')
+            plt.plot(block_distances_traveled, marker='o', linestyle='-', color='green', label='Block 1 Distance Traveled')
+            plt.plot(block2_distances_traveled, marker='o', linestyle='-', color='red', label='Block 2 Distance Traveled')
+            plt.plot(block_to_target_distances, marker='o', linestyle='-', color='purple', label='Block 1 to Target 1 Distance')
+            plt.plot(block_to_target2_distances, marker='o', linestyle='-', color='orange', label='Block 1 to Target 2 Distance')
+            plt.plot(block2_to_target_distances, marker='o', linestyle='-', color='brown', label='Block 2 to Target 1 Distance')
+            plt.plot(block2_to_target2_distances, marker='o', linestyle='-', color='pink', label='Block 2 to Target 2 Distance')
+
+            # shade the area where the distance is less than 0.05
+            plt.axhspan(0, 0.05, color='green', alpha=0.1)
             plt.xlabel('Time Step')
             plt.ylabel('Effector Distance')
-            plt.title(f'Batch: {batch}; Effector Distance Over Time')
+            plt.title(f'Batch: {batch}; Distances Over Time')
             plt.legend(loc='upper right')
             plt.grid(True)
-            plt.savefig(f"batch_{batch}_effector_distances_over_time.png", bbox_inches='tight')
+            plt.savefig(f"batch_{batch}_distances_over_time.png", bbox_inches='tight')
             plt.close()
             
 
-    
+    def get_vertical_offset(self, batch):
 
-
+        self.inner_step[batch] += 1
+        return 0.025 * self.inner_step[batch]
+        
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
         dtype = policy.dtype
@@ -487,15 +562,36 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 leave=False, mininterval=self.tqdm_interval_sec)
             done = False
 
+            # Initialize trackers for plotting across steps
             num_batches = obs.shape[0]
             distance_rolling_lists = {batch: deque(maxlen=5) for batch in range(num_batches)}
 
             self.total_effector_distance = dict()
+            self.total_block_distance_traveled = dict()
+            self.total_block2_distance_traveled = dict()
+            self.total_block_to_target_distance = dict()
+            self.total_block_to_target2_distance = dict()
+            self.total_block2_to_target_distance = dict()
+            self.total_block2_to_target2_distance = dict()
+
             for batch in [0, 5, 10]:
                 self.total_effector_distance[batch] = []
+                self.total_block_distance_traveled[batch] = []
+                self.total_block2_distance_traveled[batch] = []
+                self.total_block_to_target_distance[batch] = []
+                self.total_block_to_target2_distance[batch] = []
+                self.total_block2_to_target_distance[batch] = []
+                self.total_block2_to_target2_distance[batch] = []
+
+            self.text_x, self.text_y_start = 0.05, 0.95
+            self.vertical_offset = 0.025  # Vertical space between lines
+
+            
 
 
             while not done:
+                self.inner_step = [0] * num_batches
+
                 # Create obs dict
                 if not self.obs_eef_target:
                     obs[..., 8:10] = 0
@@ -532,29 +628,36 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 # Step env
                 obs, reward, done, info = env.step(action)
+                for batch in range(num_batches):
+                    if np.all(done[batch]):
+                        print(f"Batch: {batch} done at step {step}")
+                done_per_batch = done
                 done = np.all(done)
                 past_action = action
 
+               
+                    
+           
                 # Update pbar
                 pbar.update(action.shape[1])
 
                 # Compute distance traveled by blocks and update rolling lists
                 for batch in range(num_batches):
-                    distance_traveled = self.get_total_block_distance(obs_before=obs_before, obs_after=obs, batch=batch)
+                    distance_traveled = self.get_total_block_distance_traveled(obs_before=obs_before, obs_after=obs, batch=batch)
                     distance_rolling_lists[batch].append(distance_traveled)
 
-                
+                past_five = obs_dict['distance_rolling_list']
                 # Plot trajectories for each batch of focus
                 for batch in [0, 5, 10]:  # Focus on specific batches for plotting
-                    past_five = obs_dict['distance_rolling_list'][batch]
-                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, past_five=past_five)
+         
+                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, past_five=past_five, done=done_per_batch)
 
                 obs_before = obs
                 step += 1
 
             pbar.close()
 
-            self.plot_effector_distances()
+            self.plot_total_distances()
 
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
