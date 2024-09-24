@@ -9,7 +9,6 @@ from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
-import numpy as np
 
 class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
@@ -95,21 +94,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         trajectory[condition_mask] = condition_data[condition_mask]        
 
         return trajectory
-    
-    def rotate_point(self, x, y, deg):
-        # Convert degrees to radians
-        theta = np.radians(deg)
-        
-        # Compute cosine and sine of the angle
-        cos_theta = np.cos(theta)
-        sin_theta = np.sin(theta)
-        
-        # Apply rotation matrix
-        x_new = x * cos_theta - y * sin_theta
-        y_new = x * sin_theta + y * cos_theta
-        
-        return x_new, y_new
-
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -120,9 +104,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
         assert 'obs' in obs_dict
         assert 'past_action' not in obs_dict # not implemented yet
-        past_distances = obs_dict['distance_rolling_list']
-
-
         nobs = self.normalizer['obs'].normalize(obs_dict['obs'])
         B, _, Do = nobs.shape
         To = self.n_obs_steps
@@ -147,45 +128,12 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         elif self.obs_as_global_cond:
             # condition throught global feature
-
-            # nobs[:,:To] is the past observation of shape (56, 2, 16) -- 56 batches, 2 timesteps, 16 features
-            
-            for batch in [0, 5, 10]:
-                past_five = obs_dict['distance_rolling_list'][batch].sum().item()
-                RESET_THRESHOLD = 0.001 
-                if past_five < RESET_THRESHOLD and obs_dict['step'] >= 5:
-                    # rotate the angle by 90 degrees
-                    nobs_copy = nobs.clone()
-                    obs_step = 0 # Which of the observation we're at (0 = t-1, first observation 1 = t the observation right before this one)
-
-                    effector_actual = {
-                        'x': nobs_copy[batch][obs_step][6], 
-                        'y': nobs_copy[batch][obs_step][7],
-                    }
-
-                    rotated_effector = {
-                        'x': nobs_copy[batch][obs_step][6], 
-                        'y': nobs_copy[batch][obs_step][7],
-                    }
-
-                    rotated_effector['x'], rotated_effector['y'] = self.rotate_point(x=effector_actual['x'], y=effector_actual['y'], deg=90)
-
-                    nobs[batch][obs_step][6] = rotated_effector['x']
-                    nobs[batch][obs_step][7] = rotated_effector['y']
-
-
             global_cond = nobs[:,:To].reshape(nobs.shape[0], -1)
-
-
-
             shape = (B, T, Da)
             if self.pred_action_steps_only:
                 shape = (B, self.n_action_steps, Da)
             cond_data = torch.zeros(size=shape, device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-
-
-
         else:
             # condition through impainting
             shape = (B, T, Da+Do)

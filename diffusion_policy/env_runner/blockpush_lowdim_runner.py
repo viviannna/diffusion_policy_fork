@@ -256,7 +256,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         return block_distance
     
-    def plot_distance_from_target(self, batch, obs_after):
+    def get_blocks_to_target_distance(self, obs_after, batch):
 
         obs_step = 1 # (Most recent)
 
@@ -286,6 +286,13 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         block2_to_target = self.get_distance_between_blocks(block2, target)
         block2_to_target2 = self.get_distance_between_blocks(block2, target2)
+
+        return block_to_target, block_to_target2, block2_to_target, block2_to_target2
+
+    
+    def plot_distance_from_target(self, batch, obs_after):
+
+        block_to_target, block_to_target2, block2_to_target, block2_to_target2 = self.get_blocks_to_target_distance(obs_after=obs_after, batch=batch)
 
         self.total_block_to_target_distance[batch].append(block_to_target)
         self.total_block_to_target2_distance[batch].append(block_to_target2)
@@ -442,19 +449,21 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-    def plot_reset(self, step, past_five, batch):
-        
-        past_five = past_five[batch].sum().item()
-        RESET_THRESHOLD = 0.001 
-        if past_five < RESET_THRESHOLD and step >= 5:
-            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
+    # def plot_reset(self, step, past_five, batch):
+        # ONLY IF ACTUALLY DOING ROTATIONS
+    #     past_five = past_five[batch].sum().item()
+    #     RESET_THRESHOLD = 0.001 
+    #     if past_five < RESET_THRESHOLD and step >= 5:
+    #         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
 
-    def plot_done(self, batch, done):
+    def plot_successful(self, obs_after, batch):
 
-        if np.all(done[batch]):
-            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Done!', color='green', fontsize=9, transform=plt.gca().transAxes)
+        if self.is_successful(obs=obs_after, batch=batch)[0]:
+            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Successful!', color='green', fontsize=9, transform=plt.gca().transAxes)
             return True
-        return False
+        else:
+            return False
+
 
 
 
@@ -468,8 +477,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch)
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_distance_from_target(batch=batch, obs_after=obs_after)
-        if not(self.plot_done(batch=batch, done=done)):
-            self.plot_reset(step=step, past_five=past_five, batch=batch)
+        self.plot_successful(batch=batch, obs_after=obs_after)    
+        # if not(self.plot_done(batch=batch, done=done)):
+        #     self.plot_reset(step=step, past_five=past_five, batch=batch)
         
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
@@ -483,7 +493,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
     def plot_total_distances(self):
 
-        for batch in [0, 5, 10]:
+        for batch in [0, 8, 10]:
 
             effector_distances = self.total_effector_distance[batch]
             block_distances_traveled = self.total_block_distance_traveled[batch]
@@ -518,6 +528,36 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         self.inner_step[batch] += 1
         return 0.025 * self.inner_step[batch]
+    
+    def is_successful(self, obs, batch):
+
+        targets = ["target", "target2"]
+        goal_dist_tolerance = 0.05
+        block_to_target, block_to_target2, block2_to_target, block2_to_target2 = self.get_blocks_to_target_distance(obs_after=obs, batch=batch)
+
+        def _closest_target(block):
+
+            if block == "block":
+                dists = [block_to_target, block_to_target2]
+            else: 
+                dists = [block2_to_target, block2_to_target2]
+
+            closest_target = targets[np.argmin(dists)]
+            closest_dist = np.min(dists)
+
+            # Is it in the closest target?
+            in_target = closest_dist < goal_dist_tolerance
+            return closest_dist, closest_target, in_target
+
+        b0_closest_dist, b0_closest_target, b0_in_target = _closest_target("block")
+        b1_closest_dist, b1_closest_target, b1_in_target = _closest_target("block2")
+
+        if b0_in_target and b1_in_target and (b0_closest_target != b1_closest_target):
+            return True, b0_closest_dist, b1_closest_dist
+        
+        return False, b0_closest_dist, b1_closest_dist
+
+
         
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
@@ -574,7 +614,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             self.total_block2_to_target_distance = dict()
             self.total_block2_to_target2_distance = dict()
 
-            for batch in [0, 5, 10]:
+            for batch in [0, 8, 10]:
                 self.total_effector_distance[batch] = []
                 self.total_block_distance_traveled[batch] = []
                 self.total_block2_distance_traveled[batch] = []
@@ -587,7 +627,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             self.vertical_offset = 0.025  # Vertical space between lines
 
             
-
+            re_done_per_batch = [False] * num_batches
+            closest_dist_per_batch = [(0, 0)] * num_batches
 
             while not done:
                 self.inner_step = [0] * num_batches
@@ -629,15 +670,15 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 # Step env
                 obs, reward, done, info = env.step(action)
                 for batch in range(num_batches):
-                    if np.all(done[batch]):
-                        print(f"Batch: {batch} done at step {step}")
-                done_per_batch = done
+
+                    # NOTE: Manually replicating the succseful condition here ourselves since after 44 steps (determined by self.max_episode_steos) the env will auto mark them as successful
+                    is_done, closest_b1_dist, closest_b2_dist = self.is_successful(obs=obs, batch=batch)
+                    re_done_per_batch[batch] = is_done
+                    closest_dist_per_batch[batch] = (closest_b1_dist, closest_b2_dist)
+
                 done = np.all(done)
                 past_action = action
 
-               
-                    
-           
                 # Update pbar
                 pbar.update(action.shape[1])
 
@@ -648,13 +689,33 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 past_five = obs_dict['distance_rolling_list']
                 # Plot trajectories for each batch of focus
-                for batch in [0, 5, 10]:  # Focus on specific batches for plotting
+                for batch in [0, 8, 10]:  # Focus on specific batches for plotting
          
-                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, past_five=past_five, done=done_per_batch)
+                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, past_five=past_five, done=re_done_per_batch)
 
                 obs_before = obs
                 step += 1
 
+            done_batches = []
+            not_done_batches = []
+            for i in range(len(re_done_per_batch)):
+                if re_done_per_batch[i]:
+                    done_batches.append(i)
+                else:
+                    not_done_batches.append(i)
+
+            with open('success_summary.txt', 'w') as file:
+                file.write(f'Successful Batches: {done_batches}\n')
+                file.write(f'Unsuccessful Batches: {not_done_batches}\n')
+                file.write(f"Success Rate: {(len(done_batches) / len(re_done_per_batch)) * 100}\n")
+                file.write(f"Distance of Block 1, Block 2 to Closest Targest\n")
+                for i in range(len(closest_dist_per_batch)):
+                    (closest_dist_b1, closest_dist_b2) = closest_dist_per_batch[i]
+                    if (closest_dist_b1 < 0.06) and (closest_dist_b2 < 0.06):
+
+                        file.write(f"** Batch {i}:  {closest_dist_b1:.3f}, {closest_dist_b2:.3f}\n")
+                    else:
+                        file.write(f"   Batch {i}:  {closest_dist_b1:.3f}, {closest_dist_b2:.3f}\n")
             pbar.close()
 
             self.plot_total_distances()
@@ -728,3 +789,5 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 log_data[key] = prob
 
         return log_data
+    
+

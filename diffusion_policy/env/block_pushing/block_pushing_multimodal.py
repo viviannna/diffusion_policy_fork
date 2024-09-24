@@ -407,7 +407,7 @@ class BlockPushMultimodal(block_pushing.BlockPush):
         if reward >= 0.5:
             # Terminate the episode if both blocks are close enough to the targets.
             done = True
-
+    
         info = self._event_manager.get_info()
         return state, reward, done, info
     

@@ -32,7 +32,7 @@ class VideoRecordingWrapper(gym.Wrapper):
         return obs
     
     def step(self, action):
-        result = super().step(action)
+        result = super().step(action) # calls block_pushing_multimodal
         self.step_count += 1
         if self.file_path is not None \
             and ((self.step_count % self.steps_per_render) == 0):
