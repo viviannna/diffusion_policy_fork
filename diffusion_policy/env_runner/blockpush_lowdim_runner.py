@@ -449,12 +449,12 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-    # def plot_reset(self, step, past_five, batch):
+    def plot_reset(self, step, past_five, batch):
         # ONLY IF ACTUALLY DOING ROTATIONS
-    #     past_five = past_five[batch].sum().item()
-    #     RESET_THRESHOLD = 0.001 
-    #     if past_five < RESET_THRESHOLD and step >= 5:
-    #         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
+        past_five = past_five[batch].sum().item()
+        RESET_THRESHOLD = 0.001 
+        if past_five < RESET_THRESHOLD and step >= 5:
+            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Resetting...', color='red', fontsize=9, transform=plt.gca().transAxes)
 
     def plot_successful(self, obs_after, batch):
 
@@ -477,9 +477,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch)
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_distance_from_target(batch=batch, obs_after=obs_after)
-        self.plot_successful(batch=batch, obs_after=obs_after)    
-        # if not(self.plot_done(batch=batch, done=done)):
-        #     self.plot_reset(step=step, past_five=past_five, batch=batch)
+        if not (self.plot_successful(batch=batch, obs_after=obs_after)):
+            self.plot_reset(step=step, past_five=past_five, batch=batch)
         
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
@@ -711,11 +710,16 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 file.write(f"Distance of Block 1, Block 2 to Closest Targest\n")
                 for i in range(len(closest_dist_per_batch)):
                     (closest_dist_b1, closest_dist_b2) = closest_dist_per_batch[i]
+                    # one star per number under 0.06
+                    if (closest_dist_b1 < 0.06):
+                        file.write("*")
+                    if (closest_dist_b2 < 0.06):
+                        file.write("*")
                     if (closest_dist_b1 < 0.06) and (closest_dist_b2 < 0.06):
 
-                        file.write(f"** Batch {i}:  {closest_dist_b1:.3f}, {closest_dist_b2:.3f}\n")
+                        file.write(f" Batch {i}:      {closest_dist_b1:.3f},  {closest_dist_b2:.3f}\n")
                     else:
-                        file.write(f"   Batch {i}:  {closest_dist_b1:.3f}, {closest_dist_b2:.3f}\n")
+                        file.write(f"   Batch {i}:      {closest_dist_b1:.3f},  {closest_dist_b2:.3f}\n")
             pbar.close()
 
             self.plot_total_distances()
