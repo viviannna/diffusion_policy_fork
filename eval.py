@@ -50,7 +50,7 @@ def main(checkpoint, output_dir, device):
             os.system(f"ffmpeg -framerate 3 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
     
-    batches = [0, 8, 10]
+    batches = [0, 1,  8, 10, 21, 37]
     
     clear_directory(batches)
 

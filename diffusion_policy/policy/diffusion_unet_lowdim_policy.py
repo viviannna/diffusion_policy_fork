@@ -98,6 +98,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         return trajectory
     
     def rotate_point(self, x, y, deg):
+        '''
+        Rotates a given point (x, y) by deg degrees around the origin (0, 0)
+        '''
         # Convert degrees to radians
         theta = np.radians(deg)
 
@@ -110,6 +113,74 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         y_new = x * sin_theta + y * cos_theta
 
         return x_new, y_new
+    
+
+    def rotate_observed_effector(self, batch, nobs, rotation_angle):
+        '''
+        Rotates the value of the effector in the t-1 observation. Lying about where we were two observations ago. We are NOT rotating the trajectory. 
+        '''
+
+        nobs_copy = nobs.clone()
+        OBS_STEP = 0  # Which of the observations we're at (0 = t-1, first observation, 1 = t the observation right before this one)
+
+        effector_actual = {
+            'x': nobs_copy[batch][OBS_STEP][6], 
+            'y': nobs_copy[batch][OBS_STEP][7],
+        }
+
+        rotated_effector = {
+            'x': nobs_copy[batch][OBS_STEP][6], 
+            'y': nobs_copy[batch][OBS_STEP][7],
+        }
+
+        rotated_effector['x'], rotated_effector['y'] = self.rotate_point(x=effector_actual['x'], y=effector_actual['y'], deg=rotation_angle)
+
+        nobs[batch][OBS_STEP][6] = rotated_effector['x']
+        nobs[batch][OBS_STEP][7] = rotated_effector['y']
+
+        return nobs
+    
+    def rotate_on_blocks_dist_5(self, obs_dict, nobs, B):
+
+        '''
+        Condition to only rotate if the sum of the distances traveled by the blocks in the past five steps is under RESET_THRESHOLD. 
+
+        RESET_THRESHOLD = 0.001
+
+        '''
+
+        RESET_THRESHOLD = 0.001 
+
+        rotation_angle = int(obs_dict['rotation_angle'])
+        for batch in range(B):
+            blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_rotated_step = obs_dict['last_rotated_step'][batch]
+            
+            if blocks_dist_5 < RESET_THRESHOLD and curr_step >= 5 and (curr_step - last_rotated_step) > 5:
+
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
+                obs_dict['last_rotated_step'][batch] = curr_step
+  
+
+        return nobs, obs_dict
+    
+    def rotate_on_effector_dist_5(self, obs_dict, nobs, B):
+
+
+        RESET_THRESHOLD = 0.05
+        rotation_angle = int(obs_dict['rotation_angle'])
+        for batch in range(B):  
+            effector_dist_5 = obs_dict['effector_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_rotated_step = obs_dict['last_rotated_step'][batch]
+
+            if effector_dist_5 < RESET_THRESHOLD and curr_step >= 5 and (curr_step - last_rotated_step) > 5:
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
+                obs_dict['last_rotated_step'][batch] = curr_step
+
+        return nobs, obs_dict
+    
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -120,7 +191,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
         assert 'obs' in obs_dict
         assert 'past_action' not in obs_dict # not implemented yet
-        past_distances = obs_dict.get('distance_rolling_list')
         nobs = self.normalizer['obs'].normalize(obs_dict['obs'])
         B, _, Do = nobs.shape
         To = self.n_obs_steps
@@ -149,28 +219,12 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
             # nobs[:,:To] is the past observation of shape (56, 2, 16) -- 56 batches, 2 timesteps, 16 features
 
-            for batch in [0, 8, 10]:
-                past_five = obs_dict['distance_rolling_list'][batch].sum().item()
-                RESET_THRESHOLD = 0.001 
-                if past_five < RESET_THRESHOLD and obs_dict['step'] >= 5:
-                    # rotate the angle by 90 degrees
-                    nobs_copy = nobs.clone()
-                    obs_step = 0 # Which of the observation we're at (0 = t-1, first observation 1 = t the observation right before this one)
-
-                    effector_actual = {
-                        'x': nobs_copy[batch][obs_step][6], 
-                        'y': nobs_copy[batch][obs_step][7],
-                    }
-
-                    rotated_effector = {
-                        'x': nobs_copy[batch][obs_step][6], 
-                        'y': nobs_copy[batch][obs_step][7],
-                    }
-
-                    rotated_effector['x'], rotated_effector['y'] = self.rotate_point(x=effector_actual['x'], y=effector_actual['y'], deg=90)
-
-                    nobs[batch][obs_step][6] = rotated_effector['x']
-                    nobs[batch][obs_step][7] = rotated_effector['y']
+            rotation_cond = int(obs_dict['rotation_cond'])
+            if rotation_cond != None: 
+                if rotation_cond == 0:
+                    nobs, obs_dict = self.rotate_on_blocks_dist_5(obs_dict, nobs, B)    
+                elif rotation_cond == 1: 
+                    nobs, obs_dict = self.rotate_on_effector_dist_5(obs_dict, nobs, B)
 
             global_cond = nobs[:,:To].reshape(nobs.shape[0], -1)
             shape = (B, T, Da)
