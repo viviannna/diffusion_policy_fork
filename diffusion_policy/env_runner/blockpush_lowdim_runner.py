@@ -26,6 +26,7 @@ from collections import deque
 import matplotlib
 matplotlib.use('Agg')
 
+
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
             output_dir,
@@ -47,6 +48,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             n_envs=None
         ):
         super().__init__(output_dir)
+        
 
         if n_envs is None:
             n_envs = n_train + n_test
@@ -80,6 +82,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 n_action_steps=n_action_steps,
                 max_episode_steps=max_steps
             )
+        
+        
 
         env_fns = [env_fn] * n_envs
         env_seeds = list()
@@ -88,7 +92,11 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         # train
         for i in range(n_train):
             seed = train_start_seed + i
-            enable_render = i < n_train_vis
+            # enable_render = i < n_train_vis
+            if i in [0, 1, 8, 10, 21, 37]:
+                enable_render = True
+            else:
+                enable_render = False
 
             def init_fn(env, seed=seed, enable_render=enable_render):
                 # setup rendering
@@ -97,10 +105,13 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 env.env.video_recoder.stop()
                 env.env.file_path = None
                 if enable_render:
-                    filename = pathlib.Path(output_dir).joinpath(
-                        'media', wv.util.generate_id() + ".mp4")
-                    filename.parent.mkdir(parents=False, exist_ok=True)
-                    filename = str(filename)
+                    # filename = pathlib.Path(output_dir).joinpath(
+                    #     'media', wv.util.generate_id() + ".mp4")
+                    # filename.parent.mkdir(parents=False, exist_ok=True)
+                    # filename = str(filename)
+
+                    filename = self.generate_sequential_filename(output_dir, i, test=False)
+                    print("filename:    ", filename)
                     env.env.file_path = filename
 
                 # set seed
@@ -114,7 +125,12 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         # test
         for i in range(n_test):
             seed = test_start_seed + i
-            enable_render = i < n_test_vis
+            # enable_render = i < n_test_vis
+
+            if (i+n_train) in [0, 1, 8, 10, 21, 37]:
+                enable_render = True
+            else:
+                enable_render = False
 
             def init_fn(env, seed=seed, enable_render=enable_render):
                 # setup rendering
@@ -123,11 +139,14 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 env.env.video_recoder.stop()
                 env.env.file_path = None
                 if enable_render:
-                    filename = pathlib.Path(output_dir).joinpath(
-                        'media', wv.util.generate_id() + ".mp4")
-                    filename.parent.mkdir(parents=False, exist_ok=True)
-                    filename = str(filename)
+                    # filename = pathlib.Path(output_dir).joinpath(
+                    #     'media', wv.util.generate_id() + ".mp4")
+                    # filename.parent.mkdir(parents=False, exist_ok=True)
+
+                    filename = self.generate_sequential_filename(output_dir, i, test=True)
+                    # filename = str(filename)
                     env.env.file_path = filename
+                    print("filename:    ", filename)
 
                 # set seed
                 assert isinstance(env, MultiStepWrapper)
@@ -153,6 +172,28 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.max_steps = max_steps
         self.tqdm_interval_sec = tqdm_interval_sec
         self.obs_eef_target = obs_eef_target
+
+        
+
+
+    def generate_sequential_filename(self, output_dir, i, test=False):
+        media_dir = pathlib.Path(output_dir).joinpath('media')
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        if test: 
+            batch = i + 6 # offset by the number of training batches
+        else:
+            batch = i
+
+      
+        # global batch
+        # Create the new file path with the next number
+        filename = media_dir.joinpath(f'batch_{batch}_sim.mp4')
+
+        # batch = (batch + 1) % 56 
+        return str(filename)
+
+
 
     
     def plot_desired_trajectory(self, desired_trajectory, batch):
@@ -692,12 +733,11 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     
                     'step': np.array([step], dtype=np.float32),  # Step should be a 1D array for consistency
                     'last_rotated_step': np.array(last_rotated_step), 
+                    'rotate' : np.array([0], dtype=np.float32),
 
                     'rotation_cond': np.array(int(rotation_conds['effector_dist_5']), dtype=np.float32),
                     'rotation_angle': np.array([90], dtype=np.float32),
                     
-
-
                 }
                 if self.past_action and (past_action is not None):
                     np_obs_dict['past_action'] = past_action[:, -(self.n_obs_steps-1):].astype(np.float32)
