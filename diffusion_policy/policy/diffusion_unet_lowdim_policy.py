@@ -219,8 +219,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
             # nobs[:,:To] is the past observation of shape (56, 2, 16) -- 56 batches, 2 timesteps, 16 features
 
-            rotation_cond = int(obs_dict['rotation_cond'])
-            if rotation_cond != None: 
+            rotate = int(obs_dict['rotate'])
+            if rotate != 0: 
+                rotation_cond = int(obs_dict['rotation_cond'])
                 if rotation_cond == 0:
                     nobs, obs_dict = self.rotate_on_blocks_dist_5(obs_dict, nobs, B)    
                 elif rotation_cond == 1: 

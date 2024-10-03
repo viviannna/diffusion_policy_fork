@@ -36,10 +36,15 @@ def main(checkpoint, output_dir, device):
                 shutil.rmtree(directory)  # Remove the directory and all its contents
             os.makedirs(directory)  # Recreate the directory
 
+        # delete data/block_pushing_multimodal/eval and then make new
+        if os.path.exists('data/blockpush_eval_output/media'):
+            shutil.rmtree('data/blockpush_eval_output/media')
+        os.makedirs('data/blockpush_eval_output/media')
+
     def convert_step_images_to_gif(batches):
         
         for batch_dir in batches:
-            mp4_filename = f'batch_{batch_dir}.mp4'
+            mp4_filename = f'batch_{batch_dir}_2d.mp4'
             images_pattern = f'plots/batch_{batch_dir}/step_%d.png'
             
             # Remove the existing MP4 file if it exists
