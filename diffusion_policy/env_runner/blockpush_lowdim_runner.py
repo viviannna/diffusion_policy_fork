@@ -305,7 +305,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
     
     def get_blocks_to_target_distance(self, obs_after, batch):
 
-        obs_step = 1 # (Most recent)
+        obs_step = 2 # (Most recent)
 
         block = {
         'x': obs_after[batch][obs_step][0], 
@@ -819,7 +819,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     action_dict = policy.predict_action(obs_dict)
 
                 # Device transfer
-                last_lie_step = action_dict['last_lie_step'].detach().to('cpu').numpy()
+                if 'last_lie_step' in action_dict:
+                    last_lie_step = action_dict['last_lie_step'].detach().to('cpu').numpy()
+
                 obs_dict = dict_apply(np_obs_dict, lambda x: torch.from_numpy(x).to(device=device))
 
                 np_action_dict = dict_apply(action_dict, lambda x: x.detach().to('cpu').numpy())
