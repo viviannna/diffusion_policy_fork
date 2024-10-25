@@ -140,46 +140,126 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
         return nobs
     
-    def rotate_on_blocks_dist_5(self, obs_dict, nobs, B):
+    def rotate_if_blocks_dist_5(self, obs_dict, nobs, B):
+        '''
+        Condition: Both blocks have traveled less than DISTANCE_THRESHOLD in the past 5 steps combined.
+
+        Lie: Rotate the observed effector in t-1 observation by rotation_angle degrees.
+
+        DISTANCE_TRESHOLD = 0.001
 
         '''
-        Condition to only rotate if the sum of the distances traveled by the blocks in the past five steps is under RESET_THRESHOLD. 
 
-        RESET_THRESHOLD = 0.001
-
-        '''
-
-        RESET_THRESHOLD = 0.001 
+        DISTANCE_TRESHOLD = 0.001 
 
         rotation_angle = int(obs_dict['rotation_angle'])
         for batch in range(B):
             blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
             curr_step = obs_dict['step']
-            last_rotated_step = obs_dict['last_rotated_step'][batch]
+            last_lie_step = obs_dict['last_lie_step'][batch]
             
-            if blocks_dist_5 < RESET_THRESHOLD and curr_step >= 5 and (curr_step - last_rotated_step) > 5:
+            if blocks_dist_5 < DISTANCE_TRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
 
                 nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
-                obs_dict['last_rotated_step'][batch] = curr_step
+                obs_dict['last_lie_step'][batch] = curr_step
   
 
         return nobs, obs_dict
     
-    def rotate_on_effector_dist_5(self, obs_dict, nobs, B):
+    def rotate_if_effector_dist_5(self, obs_dict, nobs, B):
+        """
+        Condition: The effector has traveled less than DISTANCE_TRESHOLD in the past 5 steps.
 
+        Lie: Rotate the observed effector in t-1 observation by rotation_angle degrees.
 
-        RESET_THRESHOLD = 0.05
+        DISTANCE_TRESHOLD = 0.05
+        """
+
+        DISTANCE_TRESHOLD = 0.05
         rotation_angle = int(obs_dict['rotation_angle'])
         for batch in range(B):  
             effector_dist_5 = obs_dict['effector_dist'][batch].sum().item()
             curr_step = obs_dict['step']
-            last_rotated_step = obs_dict['last_rotated_step'][batch]
+            last_lie_step = obs_dict['last_lie_step'][batch]
 
-            if effector_dist_5 < RESET_THRESHOLD and curr_step >= 5 and (curr_step - last_rotated_step) > 5:
+            if effector_dist_5 < DISTANCE_TRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
                 nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
-                obs_dict['last_rotated_step'][batch] = curr_step
+                obs_dict['last_lie_step'][batch] = curr_step
 
         return nobs, obs_dict
+    
+
+    def translate_at_angle(self, x, y, deg, distance):
+        angle_radians = np.radians(deg)
+
+        # Calculate the new coordinates using numpy's cos and sin functions
+        new_x = x + distance * np.cos(angle_radians)
+        new_y = y + distance * np.sin(angle_radians)
+        
+        return new_x, new_y
+    
+    # NOTE: Do I want to lie about all of the blocks or just claculate which one is closest to the targe -- technically privledged info
+
+    # NOTE: Currently lying about both block positions 
+    def translate_obs_blocks(self, batch, nobs, deg, distance):
+        
+        """
+        
+        Helper function for translate_if_blocks_dist_5
+        """
+
+        nobs_copy = nobs.clone()
+        OBS_STEP = 0 
+
+        block_actual = {
+            'x': nobs_copy[batch][OBS_STEP][0], 
+            'y': nobs_copy[batch][OBS_STEP][1]
+        }
+
+        nobs[batch][OBS_STEP][0], nobs[batch][OBS_STEP][1]= self.translate_at_angle(x=block_actual['x'], y=block_actual['y'], deg=deg, distance=distance)
+
+        block2_actual = {
+            'x': nobs_copy[batch][OBS_STEP][3], 
+            'y': nobs_copy[batch][OBS_STEP][4]
+        }
+
+        nobs[batch][OBS_STEP][3], nobs[batch][OBS_STEP][4] = self.translate_at_angle(x=block2_actual['x'], y=block2_actual['y'], deg=deg, distance=distance)
+
+        return nobs
+        
+    def translate_if_blocks_dist_5(self, obs_dict, nobs, B):
+        """
+        
+        Condition: Both blocks have traveled less than DISTANCE_THRESHOLD in the past 5 steps combined.
+
+        Lie: Translate the observed block positions in t-1 observation by translation_angle degrees and distance distance.
+        """
+
+        DISTANCE_THRESHOLD = 0.05
+
+        translation_angle = int(obs_dict['translation_angle'])
+        distance = (obs_dict['translation_distance']).item()
+
+        for batch in range(B):
+
+            blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+
+            if blocks_dist_5 < DISTANCE_THRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
+
+                nobs = self.translate_obs_blocks(batch, nobs, translation_angle, distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+
+
+
+
+
+        
+
     
 
 
@@ -219,13 +299,36 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
             # nobs[:,:To] is the past observation of shape (56, 2, 16) -- 56 batches, 2 timesteps, 16 features
 
+            lie_cond = int(obs_dict['lie_cond'])
+
+            # Rotate observed effector
             rotate = int(obs_dict['rotate'])
             if rotate != 0: 
-                rotation_cond = int(obs_dict['rotation_cond'])
-                if rotation_cond == 0:
-                    nobs, obs_dict = self.rotate_on_blocks_dist_5(obs_dict, nobs, B)    
-                elif rotation_cond == 1: 
-                    nobs, obs_dict = self.rotate_on_effector_dist_5(obs_dict, nobs, B)
+                lie_cond = int(obs_dict['lie_cond'])
+                if lie_cond == 0:
+                    nobs, obs_dict = self.rotate_if_blocks_dist_5(obs_dict, nobs, B)    
+                elif lie_cond == 1: 
+                    nobs, obs_dict = self.rotate_if_effector_dist_5(obs_dict, nobs, B)
+
+            translate = int(obs_dict['translate'])
+            if translate != 0:
+                lie_cond = int(obs_dict['lie_cond'])
+                if lie_cond == 0:
+                    nobs, obs_dict = self.translate_if_blocks_dist_5(obs_dict, nobs, B)
+        
+
+                # elif lie_cond == 1:
+                #     nobs, obs_dict = self.translate_if_blocks_dist_5(self, obs_dict=obs_dict, nobs=nobs, B=B)
+
+
+
+            # Translate observed block position
+
+
+            # goal is to lie about the block position instead
+
+
+
 
             global_cond = nobs[:,:To].reshape(nobs.shape[0], -1)
             shape = (B, T, Da)
@@ -265,7 +368,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         
         result = {
             'action': action,
-            'action_pred': action_pred
+            'action_pred': action_pred,
+            'last_lie_step': obs_dict['last_lie_step']
         }
         if not (self.obs_as_local_cond or self.obs_as_global_cond):
             nobs_pred = nsample[...,Da:]
