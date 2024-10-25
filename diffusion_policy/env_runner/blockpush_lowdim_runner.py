@@ -26,8 +26,7 @@ from collections import deque
 import matplotlib
 matplotlib.use('Agg')
 
-global global_lie 
-
+global global_translate, global_translation_angle, global_translation_distance
 
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
@@ -368,6 +367,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         x2, y2 = block_after['x'], block_after['y']
 
         return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    
+
+    
 
     def plot_blocks(self, obs_before, obs_after, batch):
         '''
@@ -515,13 +517,56 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-    def plot_lie_step(self, step, batch, last_lie_step):
+    def translate_at_angle(self, x, y, deg, distance):
+        angle_radians = np.radians(deg)
+
+        # Calculate the new coordinates using numpy's cos and sin functions
+        new_x = x + distance * np.cos(angle_radians)
+        new_y = y + distance * np.sin(angle_radians)
+        
+        return new_x, new_y
+    
+
+    def plot_lie_step(self, step, batch, last_lie_step, obs_before):
 
         # ONLY IF ACTUALLY DOING ROTATIONS
         if last_lie_step[batch] == step:
             plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Lying...', color='red', fontsize=9, transform=plt.gca().transAxes)
 
-            # if 
+            global global_translate, global_translation_angle, global_translation_distance
+
+            if global_translate: 
+
+                
+
+                obs_step = 1
+                
+                block_before= {
+                    'x': obs_before[batch][obs_step][0].item(), 
+                    'y': obs_before[batch][obs_step][1].item(),
+                    'orientation': obs_before[batch][obs_step][2].item()
+                }
+                block2_before = {
+                    'x': obs_before[batch][obs_step][3].item(), 
+                    'y': obs_before[batch][obs_step][4].item(),
+                    'orientation': obs_before[batch][obs_step][5]
+                }
+
+                block_before['x'], block_before['y'] = self.translate_at_angle(block_before['x'], block_before['y'], global_translation_angle, global_translation_distance)
+
+
+                self.plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'cyan', 'Block Before Rotated', opacity=0.25, is_block=True)
+
+                block2_before['x'], block2_before['y'] = self.translate_at_angle(block2_before['x'], block2_before['y'], global_translation_angle, global_translation_distance)
+
+                self.plot_rectangles(block2_before['x'], block2_before['y'], block2_before['orientation'], 'olive', 'Block2 Before Rotated', opacity=0.25, is_block=True)
+
+                plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 1 Position: ({block_before["x"]:.4f}, {block_before["y"]:.4f})', color='cyan', fontsize=9, transform=plt.gca().transAxes)
+
+                plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='olive', fontsize=9, transform=plt.gca().transAxes)
+
+
+
 
     def plot_successful(self, obs_after, batch):
 
@@ -550,7 +595,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_distance_from_target(batch=batch, obs_after=obs_after)
         if not (self.plot_successful(batch=batch, obs_after=obs_after)):
-            self.plot_lie_step(step=step, batch=batch, last_lie_step=last_lie_step)
+            self.plot_lie_step(step=step, batch=batch, last_lie_step=last_lie_step, obs_before=obs_before)
         
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
@@ -752,10 +797,17 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     # Translate the observed block position
                     'translate' : np.array([1], dtype=np.float32),
                     'translation_angle': np.array([-180], dtype=np.float32), # note that you have to add 180 to get downwards
-                    'translation_distance': np.array([5], dtype=np.float32),
+                    'translation_distance': np.array([.2], dtype=np.float32),
 
                     
                 }
+
+                if np_obs_dict['translate'][0] == 1:
+                    global global_translate, global_translation_angle, global_translation_distance
+                    global_translate = True
+                    global_translation_angle = np_obs_dict['translation_angle'][0]
+                    global_translation_distance = np_obs_dict['translation_distance'][0]
+       
                 if self.past_action and (past_action is not None):
                     np_obs_dict['past_action'] = past_action[:, -(self.n_obs_steps-1):].astype(np.float32)
 
