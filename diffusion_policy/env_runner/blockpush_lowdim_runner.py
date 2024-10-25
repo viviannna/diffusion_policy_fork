@@ -26,6 +26,7 @@ from collections import deque
 import matplotlib
 matplotlib.use('Agg')
 
+global global_translate, global_translation_angle, global_translation_distance
 
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
@@ -93,7 +94,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         for i in range(n_train):
             seed = train_start_seed + i
             # enable_render = i < n_train_vis
-            if i in [0, 1, 8, 10, 21, 37]:
+            if i in [7, 8, 10, 21, 37, 43]:
                 enable_render = True
             else:
                 enable_render = False
@@ -127,7 +128,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             seed = test_start_seed + i
             # enable_render = i < n_test_vis
 
-            if (i+n_train) in [0, 1, 8, 10, 21, 37]:
+            if (i+n_train) in [7, 8, 10, 21, 37, 43]:
                 enable_render = True
             else:
                 enable_render = False
@@ -221,9 +222,14 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Desired Trajectory End Point: ({x_coords[-1]:.4f}, {y_coords[-1]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
 
 
-    def plot_rectangles(self, x, y, orientation, color, label, goal_dist_tolerance=0.05, opacity=1.0):
-        width = 2 * goal_dist_tolerance
-        height = 2 * goal_dist_tolerance
+    def plot_rectangles(self, x, y, orientation, color, label, goal_dist_tolerance=0.05, opacity=1.0, is_block=False):
+
+        if is_block: 
+            width =  goal_dist_tolerance
+            height =  goal_dist_tolerance
+        else: 
+            width = 2 * goal_dist_tolerance
+            height = 2 * goal_dist_tolerance
 
         if isinstance(x, torch.Tensor):
             x = x.item()
@@ -299,7 +305,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
     
     def get_blocks_to_target_distance(self, obs_after, batch):
 
-        obs_step = 1 # (Most recent)
+        obs_step = 2 # (Most recent)
 
         block = {
         'x': obs_after[batch][obs_step][0], 
@@ -361,6 +367,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         x2, y2 = block_after['x'], block_after['y']
 
         return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    
+
+    
 
     def plot_blocks(self, obs_before, obs_after, batch):
         '''
@@ -392,12 +401,12 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         }
 
         # Plot blocks before
-        self.plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'blue', 'Block Before', opacity=0.5)
-        self.plot_rectangles(block2_before['x'], block2_before['y'], block2_before['orientation'], 'orange', 'Block2 Before', opacity=0.5)
+        self.plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'blue', 'Block Before', opacity=0.5, is_block=True)
+        self.plot_rectangles(block2_before['x'], block2_before['y'], block2_before['orientation'], 'orange', 'Block2 Before', opacity=0.5, is_block=True)
         
         # Plot blocks after
-        self.plot_rectangles(block_after['x'], block_after['y'], block_after['orientation'], 'blue', 'Block After', opacity=1.0)
-        self.plot_rectangles(block2_after['x'], block2_after['y'], block2_after['orientation'], 'orange', 'Block2 After', opacity=1.0)
+        self.plot_rectangles(block_after['x'], block_after['y'], block_after['orientation'], 'blue', 'Block After', opacity=1.0, is_block=True)
+        self.plot_rectangles(block2_after['x'], block2_after['y'], block2_after['orientation'], 'orange', 'Block2 After', opacity=1.0, is_block=True)
 
         # Print values
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Block 1 Position (After): ({block_before["x"]:.4f}, {block_after["y"]:.4f})', color='black', fontsize=9, transform=plt.gca().transAxes)
@@ -508,12 +517,56 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Effector Distance Traveled: {effector_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
-    def plot_rotate(self, step, batch, last_rotated_step):
+    def translate_at_angle(self, x, y, deg, distance):
+        angle_radians = np.radians(deg)
+
+        # Calculate the new coordinates using numpy's cos and sin functions
+        new_x = x + distance * np.cos(angle_radians)
+        new_y = y + distance * np.sin(angle_radians)
+        
+        return new_x, new_y
+    
+
+    def plot_lie_step(self, step, batch, last_lie_step, obs_before):
 
         # ONLY IF ACTUALLY DOING ROTATIONS
-        last_rotated_step = last_rotated_step[batch]
-        if last_rotated_step == step:
-            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Rotating...', color='red', fontsize=9, transform=plt.gca().transAxes)
+        if last_lie_step[batch] == step:
+            plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Lying...', color='red', fontsize=9, transform=plt.gca().transAxes)
+
+            global global_translate, global_translation_angle, global_translation_distance
+
+            if global_translate: 
+
+                
+
+                obs_step = 1
+                
+                block_before= {
+                    'x': obs_before[batch][obs_step][0].item(), 
+                    'y': obs_before[batch][obs_step][1].item(),
+                    'orientation': obs_before[batch][obs_step][2].item()
+                }
+                block2_before = {
+                    'x': obs_before[batch][obs_step][3].item(), 
+                    'y': obs_before[batch][obs_step][4].item(),
+                    'orientation': obs_before[batch][obs_step][5]
+                }
+
+                block_before['x'], block_before['y'] = self.translate_at_angle(block_before['x'], block_before['y'], global_translation_angle, global_translation_distance)
+
+
+                self.plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'cyan', 'Block Before Rotated', opacity=0.25, is_block=True)
+
+                block2_before['x'], block2_before['y'] = self.translate_at_angle(block2_before['x'], block2_before['y'], global_translation_angle, global_translation_distance)
+
+                self.plot_rectangles(block2_before['x'], block2_before['y'], block2_before['orientation'], 'olive', 'Block2 Before Rotated', opacity=0.25, is_block=True)
+
+                plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 1 Position: ({block_before["x"]:.4f}, {block_before["y"]:.4f})', color='cyan', fontsize=9, transform=plt.gca().transAxes)
+
+                plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='olive', fontsize=9, transform=plt.gca().transAxes)
+
+
+
 
     def plot_successful(self, obs_after, batch):
 
@@ -526,7 +579,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
 
 
-    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch, last_rotated_step):
+    def plot_env_after_step(self, step, desired_trajectory, obs_before, obs_after, batch, last_lie_step):
         """
 
         Plots the observations after a step (target, block, and effector postiions). Also calculates distances from blocks to targets. Plots the desired trajectory and the target start and end positions compared to the actual start and end positions. 
@@ -542,7 +595,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch)
         self.plot_distance_from_target(batch=batch, obs_after=obs_after)
         if not (self.plot_successful(batch=batch, obs_after=obs_after)):
-            self.plot_rotate(step=step, batch=batch, last_rotated_step=last_rotated_step)
+            self.plot_lie_step(step=step, batch=batch, last_lie_step=last_lie_step, obs_before=obs_before)
         
         # # Adjust legend and labels as needed
         plt.xlabel('X Position')
@@ -556,7 +609,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
     def plot_total_distances(self):
 
-        for batch in [0, 1,  8, 10, 21, 37]:
+        for batch in [7, 8, 10, 21, 37, 43]:
 
             effector_distances = self.total_effector_distance[batch]
             block_distances_traveled = self.total_block_distance_traveled[batch]
@@ -680,7 +733,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             self.total_block2_to_target_distance = dict()
             self.total_block2_to_target2_distance = dict()
 
-            for batch in [0, 1,  8, 10, 21, 37]:
+            for batch in [7, 8, 10, 21, 37, 43]:
                 self.total_effector_distance[batch] = []
                 self.total_block_distance_traveled[batch] = []
                 self.total_block2_distance_traveled[batch] = []
@@ -696,9 +749,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             re_done_per_batch = [False] * num_batches
             closest_dist_per_batch = [(0, 0)] * num_batches
             closest_target_per_batch = [(0,0)] * num_batches
-            last_rotated_step = [0] * num_batches
+            last_lie_step = [0] * num_batches
 
-            rotation_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1}
+            lie_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1}
             
 
             while not done:
@@ -732,13 +785,29 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'effector_dist': rolling_effector_dist,
                     
                     'step': np.array([step], dtype=np.float32),  # Step should be a 1D array for consistency
-                    'last_rotated_step': np.array(last_rotated_step), 
+                    
+                    # Condition lie is based on -- (1) cummulative distance traveled by blocks in past 5 steps (2) cummulative distance traveled by effector in past 5 steps
+                    'lie_cond': np.array(int(lie_conds['blocks_dist_5']), dtype=np.float32),
+                    'last_lie_step': np.array(last_lie_step), 
+                    
+                    # Rotate the observed effector positions
                     'rotate' : np.array([0], dtype=np.float32),
+                    'rotation_angle': np.array([0], dtype=np.float32),
 
-                    'rotation_cond': np.array(int(rotation_conds['effector_dist_5']), dtype=np.float32),
-                    'rotation_angle': np.array([90], dtype=np.float32),
+                    # Translate the observed block position
+                    'translate' : np.array([1], dtype=np.float32),
+                    'translation_angle': np.array([-180], dtype=np.float32), # note that you have to add 180 to get downwards
+                    'translation_distance': np.array([.2], dtype=np.float32),
+
                     
                 }
+
+                if np_obs_dict['translate'][0] == 1:
+                    global global_translate, global_translation_angle, global_translation_distance
+                    global_translate = True
+                    global_translation_angle = np_obs_dict['translation_angle'][0]
+                    global_translation_distance = np_obs_dict['translation_distance'][0]
+       
                 if self.past_action and (past_action is not None):
                     np_obs_dict['past_action'] = past_action[:, -(self.n_obs_steps-1):].astype(np.float32)
 
@@ -750,7 +819,11 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     action_dict = policy.predict_action(obs_dict)
 
                 # Device transfer
-                last_rotated_step = obs_dict['last_rotated_step'].detach().to('cpu').numpy()
+                if 'last_lie_step' in action_dict:
+                    last_lie_step = action_dict['last_lie_step'].detach().to('cpu').numpy()
+
+                obs_dict = dict_apply(np_obs_dict, lambda x: torch.from_numpy(x).to(device=device))
+
                 np_action_dict = dict_apply(action_dict, lambda x: x.detach().to('cpu').numpy())
 
                 action = np_action_dict['action']
@@ -761,7 +834,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                     # NOTE: Manually replicating the succseful condition here ourselves since after 44 steps (determined by self.max_episode_steps) the env will auto mark them as successful
                     is_done, closest_b1_dist, closest_b1_target, closest_b2_dist, closest_b2_target = self.is_successful(obs=obs, batch=batch)
-                    re_done_per_batch[batch] = is_done
+                    re_done_per_batch[batch] = re_done_per_batch[batch] or is_done # TODO: do a union to avoid overriding in the latter steps
                     closest_dist_per_batch[batch] = (closest_b1_dist, closest_b2_dist)
                     closest_target_per_batch[batch] = (closest_b1_target, closest_b2_target)
 
@@ -780,8 +853,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     effector_dist[batch].append(effector_distance)
 
                 # Plot trajectories for specific batches of focus 
-                for batch in [0, 1,  8, 10, 21, 37]:  # Focus on specific batches for plotting
-                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_rotated_step=last_rotated_step)
+                for batch in [7, 8, 10, 21, 37, 43]:  # Focus on specific batches for plotting
+                    self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_lie_step=last_lie_step)
 
                 obs_before = obs
                 step += 1
@@ -789,37 +862,48 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             done_batches = []
             not_done_batches = []
             for i in range(len(re_done_per_batch)):
-                if re_done_per_batch[i]:
-                    done_batches.append(i)
-                else:
-                    not_done_batches.append(i)
+                if (6 <= i and i <= 55): 
+                    if re_done_per_batch[i]:
+                        done_batches.append(i)
+                    else:
+                        not_done_batches.append(i)
 
             success_larger_threshold = 0 
 
             with open('success_summary.txt', 'w') as file:
                 file.write(f'Successful Batches: {done_batches}\n')
                 file.write(f'Unsuccessful Batches: {not_done_batches}\n')
-                file.write(f"Success Rate: {(len(done_batches) / len(re_done_per_batch)) * 100}\n")
+                file.write(f"Success Rate: {(len(done_batches) / (len(re_done_per_batch) - 6)) * 100}\n")
+
+                # success is actually only measured from batch 6-55
+
                 file.write(f"Distance of Block 1, Block 2 to Closest Targest\n")
                 for i in range(len(closest_dist_per_batch)):
                     (closest_dist_b1, closest_dist_b2) = closest_dist_per_batch[i]
                     (closest_target_b1, closest_target_b2) = closest_target_per_batch[i]
-                    # one star per number under 0.06
-
+                    
+                    # Renaming targets
                     target_rename = {"target": "t1", "target2": "t2"}
                     closest_target_b1 = target_rename[closest_target_b1]
                     closest_target_b2 = target_rename[closest_target_b2]
-
-
+                    
+                    last_lie = last_lie_step[i]
+                    
+                    # Formatting with stars based on the distances
                     if closest_dist_b1 < 0.06 and closest_dist_b2 < 0.06:
-                        file.write(f"*+ Batch {i}:      {closest_dist_b1:.3f} to {closest_target_b1},  {closest_dist_b2:.3f} to {closest_target_b2} \n")
+                        file.write(f"*+ Batch {i}: {closest_dist_b1:7.3f} to {closest_target_b1}, {closest_dist_b2:7.3f} to {closest_target_b2}  ")
                         success_larger_threshold += 1
                     elif closest_dist_b1 < 0.06:
-                        file.write(f"*  Batch {i}:      {closest_dist_b1:.3f} to {closest_target_b1},  {closest_dist_b2:.3f} to {closest_target_b2} \n")
+                        file.write(f"*  Batch {i}: {closest_dist_b1:7.3f} to {closest_target_b1}, {closest_dist_b2:7.3f} to {closest_target_b2}  ")
                     elif closest_dist_b2 < 0.06:
-                        file.write(f"+  Batch {i}:      {closest_dist_b1:.3f} to {closest_target_b1},  {closest_dist_b2:.3f} to {closest_target_b2} \n")
+                        file.write(f"+  Batch {i}: {closest_dist_b1:7.3f} to {closest_target_b1}, {closest_dist_b2:7.3f} to {closest_target_b2}  ")
                     else:
-                        file.write(f"   Batch {i}:      {closest_dist_b1:.3f} to {closest_target_b1},  {closest_dist_b2:.3f} to {closest_target_b2} \n")
+                        file.write(f"   Batch {i}: {closest_dist_b1:7.3f} to {closest_target_b1}, {closest_dist_b2:7.3f} to {closest_target_b2}  ")
+                    
+                    # Aligning the last lie step information
+                    file.write(f"Last Lie Step: {last_lie}\n")
+
+
 
                 file.write(f"Success Rate (Larger Threshold): {(success_larger_threshold / len(re_done_per_batch)) * 100}\n")
                 file.write(f"Key: * Block 1 Close to Target, + Block 2 Close to Target\n")

@@ -55,7 +55,7 @@ def main(checkpoint, output_dir, device):
             os.system(f"ffmpeg -framerate 3 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
     
-    batches = [0, 1,  8, 10, 21, 37]
+    batches = [7, 8, 10, 21, 37, 43]
     
     clear_directory(batches)
 
@@ -69,7 +69,10 @@ def main(checkpoint, output_dir, device):
     payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
-    workspace = cls(cfg, output_dir=output_dir)
+    # workspace = cls(cfg, output_dir=output_dir)
+    workspace = cls(cfg)
+    workspace._output_dir = output_dir
+    
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     
@@ -97,6 +100,7 @@ def main(checkpoint, output_dir, device):
             json_log[key] = value
     out_path = os.path.join(output_dir, 'eval_log.json')
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
+
 
     convert_step_images_to_gif(batches)
     
