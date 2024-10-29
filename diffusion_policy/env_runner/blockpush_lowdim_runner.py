@@ -875,8 +875,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                         not_done_batches.append(i)
 
             success_larger_threshold = 0 
-
-            with open('success_summary.txt', 'w') as file:
+            ss_path = pathlib.Path(self.output_dir).joinpath('summary.txt')
+            with open(ss_path, 'w') as file:
                 file.write(f'Successful Batches: {done_batches}\n')
                 file.write(f'Unsuccessful Batches: {not_done_batches}\n')
                 file.write(f"Success Rate: {(len(done_batches) / (len(re_done_per_batch) - 6)) * 100}\n")
