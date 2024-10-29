@@ -111,7 +111,8 @@ task:
     n_action_steps: 8
     n_envs: null
     n_obs_steps: 2
-    n_test: 50
+    # n_test: 50
+    n_test: 4
     n_test_vis: 4
     n_train: 6
     n_train_vis: 2

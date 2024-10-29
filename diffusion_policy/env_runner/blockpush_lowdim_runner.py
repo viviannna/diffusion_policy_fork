@@ -26,7 +26,11 @@ from collections import deque
 import matplotlib
 matplotlib.use('Agg')
 
+
 global global_translate, global_translation_angle, global_translation_distance
+
+global DISPLAY_BATCHES
+DISPLAY_BATCHES = [6, 7, 8, 9]
 
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
@@ -53,6 +57,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         if n_envs is None:
             n_envs = n_train + n_test
+
+        #
 
         task_fps = 10
         steps_per_render = max(10 // fps, 1)
@@ -94,7 +100,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         for i in range(n_train):
             seed = train_start_seed + i
             # enable_render = i < n_train_vis
-            if i in [7, 8, 10, 21, 37, 43]:
+            if i in DISPLAY_BATCHES:
                 enable_render = True
             else:
                 enable_render = False
@@ -128,7 +134,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             seed = test_start_seed + i
             # enable_render = i < n_test_vis
 
-            if (i+n_train) in [7, 8, 10, 21, 37, 43]:
+            if (i+n_train) in DISPLAY_BATCHES:
                 enable_render = True
             else:
                 enable_render = False
@@ -612,7 +618,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
     def plot_total_distances(self):
 
-        for batch in [7, 8, 10, 21, 37, 43]:
+        for batch in DISPLAY_BATCHES:
 
             effector_distances = self.total_effector_distance[batch]
             block_distances_traveled = self.total_block_distance_traveled[batch]
@@ -730,7 +736,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             blocks_dist = {batch: deque(maxlen=5) for batch in range(num_batches)}
             effector_dist = {batch: deque(maxlen=5) for batch in range(num_batches)}
 
-
             self.total_effector_distance = dict()
             self.total_block_distance_traveled = dict()
             self.total_block2_distance_traveled = dict()
@@ -739,7 +744,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             self.total_block2_to_target_distance = dict()
             self.total_block2_to_target2_distance = dict()
 
-            for batch in [7, 8, 10, 21, 37, 43]:
+            for batch in DISPLAY_BATCHES:
                 self.total_effector_distance[batch] = []
                 self.total_block_distance_traveled[batch] = []
                 self.total_block2_distance_traveled[batch] = []
@@ -801,7 +806,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'rotation_angle': np.array([0], dtype=np.float32),
 
                     # Translate the observed block position
-                    'translate' : np.array([1], dtype=np.float32),
+                    'translate' : np.array([0], dtype=np.float32),
                     'translation_angle': np.array([-180], dtype=np.float32), # note that you have to add 180 to get downwards
                     'translation_distance': np.array([.2], dtype=np.float32),
 
@@ -859,7 +864,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     effector_dist[batch].append(effector_distance)
 
                 # Plot trajectories for specific batches of focus 
-                for batch in [7, 8, 10, 21, 37, 43]:  # Focus on specific batches for plotting
+                for batch in DISPLAY_BATCHES:  # Focus on specific batches for plotting
                     self.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_lie_step=last_lie_step)
 
                 obs_before = obs

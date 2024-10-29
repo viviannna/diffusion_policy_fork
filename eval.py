@@ -18,22 +18,28 @@ import wandb
 import json
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
+global DISPLAY_BATCHES
+DISPLAY_BATCHES = [6, 7, 8, 9]
+
 @click.command()
 @click.option('-c', '--checkpoint', required=True)
 @click.option('-o', '--output_dir', required=True)
 @click.option('-d', '--device', default='cuda:0')
 
-def main(checkpoint, output_dir, device):
+@click.option('--n_test', default=None, type=int, help='Override number of test environments')
+
+def main(checkpoint, output_dir, device, n_test=None):
 
     def clear_directory(batches):
+        print("\nRemember to sync your DISPLAY_BATCHES values")
         import os
         import shutil
 
+        if os.path.exists('plots'):
+            shutil.rmtree('plots')
+
         for batch_dir in batches:
             directory = f'plots/batch_{batch_dir}'
-
-            if os.path.exists(directory):
-                shutil.rmtree(directory)  # Remove the directory and all its contents
             os.makedirs(directory)  # Recreate the directory
 
         # delete data/block_pushing_multimodal/eval and then make new
@@ -56,9 +62,7 @@ def main(checkpoint, output_dir, device):
             os.system(f"ffmpeg -framerate 2 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
     
-    batches = [7, 8, 10, 21, 37, 43]
-    
-    clear_directory(batches)
+    clear_directory(DISPLAY_BATCHES)
 
 
     # Commented out -- always overrides. easier to debug
@@ -85,6 +89,9 @@ def main(checkpoint, output_dir, device):
     device = torch.device(device)
     policy.to(device)
     policy.eval()
+
+    if n_test is not None:
+        cfg.task.env_runner['n_test'] = n_test
     
     # run eval
     env_runner = hydra.utils.instantiate(
@@ -103,7 +110,7 @@ def main(checkpoint, output_dir, device):
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
 
 
-    convert_step_images_to_gif(batches)
+    convert_step_images_to_gif(DISPLAY_BATCHES)
     
 if __name__ == '__main__':
     main()
