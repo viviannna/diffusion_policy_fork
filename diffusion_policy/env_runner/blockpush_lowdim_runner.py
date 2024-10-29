@@ -111,7 +111,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     # filename.parent.mkdir(parents=False, exist_ok=True)
                     # filename = str(filename)
 
-                    filename = self.generate_sequential_filename(output_dir, i, test=False)
+                    filename = self.generate_sequential_filename(n_train, output_dir, i, test=False)
                     print("filename:    ", filename)
                     env.env.file_path = filename
 
@@ -144,7 +144,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     #     'media', wv.util.generate_id() + ".mp4")
                     # filename.parent.mkdir(parents=False, exist_ok=True)
 
-                    filename = self.generate_sequential_filename(output_dir, i, test=True)
+                    filename = self.generate_sequential_filename(n_train, output_dir, i, test=True)
                     # filename = str(filename)
                     env.env.file_path = filename
                     print("filename:    ", filename)
@@ -177,23 +177,25 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         
 
 
-    def generate_sequential_filename(self, output_dir, i, test=False):
+
+
+    def generate_sequential_filename(self, n_train, output_dir, i, test=False):
         media_dir = pathlib.Path(output_dir).joinpath('media')
         media_dir.mkdir(parents=True, exist_ok=True)
-
+        
         if test: 
-            batch = i + 6 # offset by the number of training batches
+            batch = i + n_train  # offset by the number of training batches
         else:
             batch = i
+        
+        # Create the batch directory
+        batch_dir = media_dir.joinpath(f'batch_{batch}')
+        batch_dir.mkdir(parents=True, exist_ok=True)  # Ensure the batch folder is created
 
-      
-        # global batch
         # Create the new file path with the next number
-        filename = media_dir.joinpath(f'batch_{batch}_sim.mp4')
+        filename = batch_dir.joinpath(f'sim_batch_{batch}.mp4')
 
-        # batch = (batch + 1) % 56 
         return str(filename)
-
 
 
     
@@ -305,7 +307,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
     
     def get_blocks_to_target_distance(self, obs_after, batch):
 
-        obs_step = 2 # (Most recent)
+        # obs_step = 2 # (Most recent) # for transformer? 
+        obs_step = 1 # (Most recent) # for CNN based
 
         block = {
         'x': obs_after[batch][obs_step][0], 
@@ -636,7 +639,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             plt.title(f'Batch: {batch}; Distances Over Time')
             plt.legend(loc='upper right')
             plt.grid(True)
-            plt.savefig(f"batch_{batch}_distances_over_time.png", bbox_inches='tight')
+
+            media_dir = pathlib.Path(self.output_dir).joinpath('media')
+            dist_plot_destination = media_dir.joinpath(f'batch_{batch}/dist_over_time_batch{batch}.png')
+            plt.savefig(dist_plot_destination, bbox_inches='tight')
             plt.close()
             
 

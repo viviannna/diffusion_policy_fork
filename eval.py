@@ -44,7 +44,8 @@ def main(checkpoint, output_dir, device):
     def convert_step_images_to_gif(batches):
         
         for batch_dir in batches:
-            mp4_filename = f'batch_{batch_dir}_2d.mp4'
+            media_dir = pathlib.Path(output_dir).joinpath('media')
+            mp4_filename = media_dir.joinpath(f'batch_{batch_dir}/2d_batch_{batch_dir}.mp4')
             images_pattern = f'plots/batch_{batch_dir}/step_%d.png'
             
             # Remove the existing MP4 file if it exists
@@ -52,7 +53,7 @@ def main(checkpoint, output_dir, device):
                 os.remove(mp4_filename)
             
             # Convert images to video using ffmpeg
-            os.system(f"ffmpeg -framerate 3 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
+            os.system(f"ffmpeg -framerate 2 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
     
     batches = [7, 8, 10, 21, 37, 43]
