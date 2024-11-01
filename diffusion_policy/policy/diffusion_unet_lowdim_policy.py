@@ -12,6 +12,8 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 
 import numpy as np
 
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [(1, 125, 0.2), (5, 200, 0.2)], [], [], []]
+
 class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
             model: ConditionalUnet1D,
@@ -115,7 +117,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         return x_new, y_new
     
 
-    def rotate_observed_effector(self, batch, nobs, rotation_angle):
+    def rotate_observed_effector(self, batch, nobs, rotation_angle, rotation_distance):
         '''
         Rotates the value of the effector in the t-1 observation. Lying about where we were two observations ago. We are NOT rotating the trajectory. 
         '''
@@ -133,7 +135,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             'y': nobs_copy[batch][OBS_STEP][7],
         }
 
-        rotated_effector['x'], rotated_effector['y'] = self.rotate_point(x=effector_actual['x'], y=effector_actual['y'], deg=rotation_angle)
+        # rotated_effector['x'], rotated_effector['y'] = self.rotate_point(x=effector_actual['x'], y=effector_actual['y'], deg=rotation_angle)
+
+        rotated_effector['x'], rotated_effector['y'] = self.translate_at_angle(x=effector_actual['x'], y=effector_actual['y'], deg=rotation_angle, distance=rotation_distance)
 
         nobs[batch][OBS_STEP][6] = rotated_effector['x']
         nobs[batch][OBS_STEP][7] = rotated_effector['y']
@@ -153,6 +157,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         DISTANCE_TRESHOLD = 0.001 
 
         rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+        
         for batch in range(B):
             blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
             curr_step = obs_dict['step']
@@ -160,7 +166,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             
             if blocks_dist_5 < DISTANCE_TRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
 
-                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
                 obs_dict['last_lie_step'][batch] = curr_step
   
 
@@ -177,17 +183,60 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
         DISTANCE_TRESHOLD = 0.05
         rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+
         for batch in range(B):  
             effector_dist_5 = obs_dict['effector_dist'][batch].sum().item()
             curr_step = obs_dict['step']
             last_lie_step = obs_dict['last_lie_step'][batch]
 
             if effector_dist_5 < DISTANCE_TRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
-                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle)
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
                 obs_dict['last_lie_step'][batch] = curr_step
 
         return nobs, obs_dict
-    
+
+
+    def rotate_if_first_step(self, obs_dict, nobs, B):
+        """
+        Condition: First step
+
+        Lie: Rotate the observed effector in the t-1 observation by rotation_angle and rotation_distance.
+
+        """
+
+        rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+
+        for batch in range(B):
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+
+            if curr_step == 1:
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+
+    def rotate_if_custom(self, obs_dict, nobs, B):
+
+        for batch in range(B):
+            curr_step = obs_dict['step']
+            
+            # Retrieve the list of rotations specific to the current batch
+            batch_rotations = ROTATIONS_PER_BATCH[batch]
+
+            for step, rotation_angle, rotation_distance in batch_rotations:
+                # Check if the current step matches the target rotation step
+                if curr_step == step:
+                    # Rotate and record the rotation in the reference list
+                    nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                    obs_dict['last_lie_step'][batch] = curr_step
+                    
+        # Pass applied_rotations to another function as needed for plotting
+        return nobs, obs_dict
+
 
     def translate_at_angle(self, x, y, deg, distance):
         angle_radians = np.radians(deg)
@@ -300,11 +349,19 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
                 elif lie_cond == 1: 
                     nobs, obs_dict = self.rotate_if_effector_dist_5(obs_dict, nobs, B)
 
+                elif lie_cond == 2: 
+                    nobs, obs_dict = self.rotate_if_first_step(obs_dict, nobs, B)
+
+                elif lie_cond == 3: 
+                    nobs, obs_dict = self.rotate_if_custom(obs_dict, nobs, B)
+
             translate = int(obs_dict['translate'])
             if translate != 0:
                 lie_cond = int(obs_dict['lie_cond'])
                 if lie_cond == 0:
                     nobs, obs_dict = self.translate_if_blocks_dist_5(obs_dict, nobs, B)
+
+            
         
 
                 # elif lie_cond == 1:

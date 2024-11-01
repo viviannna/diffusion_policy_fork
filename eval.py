@@ -32,6 +32,7 @@ def main(checkpoint, output_dir, device, n_test=None):
 
     def clear_directory(batches):
         print("\nRemember to sync your DISPLAY_BATCHES values")
+        print("\nRemember to sync your ROTATIONS_PER_BATCH values")
         import os
         import shutil
 

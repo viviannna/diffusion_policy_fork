@@ -29,7 +29,14 @@ matplotlib.use('Agg')
 
 global global_translate, global_translation_angle, global_translation_distance
 
-global global_rotate, global_rotation_angle
+global_translate = False
+
+global global_rotate, global_rotation_angle, global_rotation_distance
+global_rotate = False
+
+global custom_lies
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [(1, 125, 0.2), (5, 200, 0.2)], [], [], []]  # per batch, list out all the custom (step, deg, distance) lies that we want to do. if we keep it consistent here and in policy then any time we get that step = last_lie_step, we can just increment and know which deg and distance to rotate by.  
+
 
 global DISPLAY_BATCHES
 DISPLAY_BATCHES = [6, 7, 8, 9]
@@ -221,7 +228,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         # Plot each point with the corresponding color
         for j in range(action_horizon):
             plt.scatter(x_coords[j], y_coords[j], color=colors[j], label=f'Batch {batch+1}' if j == 0 and batch == 0 else "", edgecolor='k')
-
        
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Desired Trajectory End Point: ({x_coords[-1]:.4f}, {y_coords[-1]:.4f})', color='red', fontsize=9, transform=plt.gca().transAxes)
 
@@ -497,7 +503,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
         plt.scatter(starting_effector_target['x'], starting_effector_target['y'], color='purple', marker='o', s=100, label='Starting Target Effector', alpha=0.5)
 
-
         # Plot the final effector position
         plt.scatter(effector_actual['x'], effector_actual['y'], color='green', marker='o', s=100, label='Actual Effector', alpha=.5)
 
@@ -535,8 +540,12 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         if last_lie_step[batch] == step:
             plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), 'Lying...', color='red', fontsize=9, transform=plt.gca().transAxes)
 
+            # TODO: Make this way more general. 
+            # This is temporary solution -- but basically we now get passed in obs_before and then we locally call the same lie function that lowdim_policy.py uses to get the same outputs and then we plot the values. We don't need to worry about the lie_condition since we already know that we lied in this step (last_lie_step[batch] == step)
+
             global global_translate, global_translation_angle, global_translation_distance
 
+        
             if global_translate: 
 
                 obs_step = 1
@@ -554,7 +563,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 block_before['x'], block_before['y'] = self.translate_at_angle(block_before['x'], block_before['y'], global_translation_angle, global_translation_distance)
 
-
                 self.plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'cyan', 'Block Before Rotated', opacity=0.25, is_block=True)
 
                 block2_before['x'], block2_before['y'] = self.translate_at_angle(block2_before['x'], block2_before['y'], global_translation_angle, global_translation_distance)
@@ -565,7 +573,30 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='olive', fontsize=9, transform=plt.gca().transAxes)
 
-        
+            global global_rotate, global_rotation_angle, global_rotation_distance
+
+            if global_rotate:
+                obs_step = 1
+
+                effector_before = {
+                    'x': obs_before[batch][obs_step][6], 
+                    'y': obs_before[batch][obs_step][7],
+                }
+
+                # instead of doing global_rotation_angle, we should just pop off the top of ROTATIONS_PER_BATCH (assuming that there are still elements in the list)
+
+                batch_rotations = ROTATIONS_PER_BATCH[batch] # NOTE this only works when our batches are numeric
+
+                if len(batch_rotations) > 0:
+                    rotation = batch_rotations.pop(0)
+                    rotation_angle = rotation[1]
+                    rotation_distance = rotation[2]
+
+                    effector_before['x'], effector_before['y'] = self.translate_at_angle(effector_before['x'], effector_before['y'], rotation_angle, rotation_distance)
+
+                    plt.scatter(effector_before['x'], effector_before['y'], color='yellow', marker='o', s=100, label='Effector After Rotation', alpha=0.75, edgecolors='black', linewidths=1.5)
+
+                    plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Effector Value (Actual): ({effector_before["x"]:.4f}, {effector_before["y"]:.4f})', color='goldenrod', fontsize=9, transform=plt.gca().transAxes)
 
 
     def plot_successful(self, obs_after, batch):
@@ -755,7 +786,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             closest_target_per_batch = [(0,0)] * num_batches
             last_lie_step = [0] * num_batches
 
-            lie_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1}
+            lie_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1, 'first_step': 2, 'custom':3}
             
 
             while not done:
@@ -791,26 +822,41 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'step': np.array([step], dtype=np.float32),  # Step should be a 1D array for consistency
                     
                     # Condition lie is based on -- (1) cummulative distance traveled by blocks in past 5 steps (2) cummulative distance traveled by effector in past 5 steps
-                    'lie_cond': np.array(int(lie_conds['blocks_dist_5']), dtype=np.float32),
+                    'lie_cond': np.array(int(lie_conds['custom']), dtype=np.float32),
                     'last_lie_step': np.array(last_lie_step), 
                     
                     # Rotate the observed effector positions
-                    'rotate' : np.array([0], dtype=np.float32),
+                    'rotate' : np.array([1], dtype=np.float32),
                     'rotation_angle': np.array([0], dtype=np.float32),
+                    'rotation_distance': np.array([0], dtype=np.float32),
 
                     # Translate the observed block position
                     'translate' : np.array([0], dtype=np.float32),
-                    'translation_angle': np.array([-180], dtype=np.float32), # note that you have to add 180 to get downwards
-                    'translation_distance': np.array([.2], dtype=np.float32),
+                    'translation_angle': np.array([0], dtype=np.float32), # note that you have to add 180 to get downwards
+                    'translation_distance': np.array([0], dtype=np.float32),
+
+                    'custom': np.array([0], dtype=np.float32)
 
                     
                 }
+
+                # Setting global variables so I can use them in plot_lie_step(). Would be much better to just have a dictionary of my lie configuration. 
 
                 if np_obs_dict['translate'][0] == 1:
                     global global_translate, global_translation_angle, global_translation_distance
                     global_translate = True
                     global_translation_angle = np_obs_dict['translation_angle'][0]
                     global_translation_distance = np_obs_dict['translation_distance'][0]
+
+                if np_obs_dict['rotate'][0] == 1:
+                    global global_rotate, global_rotation_angle, global_rotation_distance
+                    global_rotate = True
+                    global_rotation_angle = np_obs_dict['rotation_angle'][0]
+                    global_rotation_distance = np_obs_dict['rotation_distance'][0]
+
+                if np_obs_dict['custom'][0] == 1:
+                    global global_custom
+                    global_custom = True
        
                 if self.past_action and (past_action is not None):
                     np_obs_dict['past_action'] = past_action[:, -(self.n_obs_steps-1):].astype(np.float32)
@@ -883,7 +929,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 file.write(f"Distance of Block 1, Block 2 to Closest Targest\n")
                 for i in range(len(closest_dist_per_batch)):
 
-                    file.write(f"Batch {i} info: {info[i]}")
                     (closest_dist_b1, closest_dist_b2) = closest_dist_per_batch[i]
                     (closest_target_b1, closest_target_b2) = closest_target_per_batch[i]
                     
@@ -907,8 +952,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     
                     # Aligning the last lie step information
                     file.write(f"Last Lie Step: {last_lie}\n")
-
-
 
                 file.write(f"Success Rate (Larger Threshold): {(success_larger_threshold / len(re_done_per_batch)) * 100}\n")
                 file.write(f"Key: * Block 1 Close to Target, + Block 2 Close to Target\n")
@@ -950,7 +993,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             total_p2[prefix].append(p2)
             log_data[prefix+f'sim_max_reward_{seed}'] = total_reward
 
-            first_seen_block = "block_0 (right)"
+            first_seen_block = "block_A (0: right)"
             first_seen_step = last_info[i]['REACH_0']
 
             # aggregate event counts
@@ -963,7 +1006,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 log_data[prefix+f'batch_{i}_'+key] = log_data[prefix + f'batch_{i}_' + key] = float(int((value + 7) // 8)) if value != -1 else -1
                 
                 if (key == "REACH_1") and value != -1 and value < first_seen_step:
-                    first_seen_block = "block_1 (left)"
+                    first_seen_block = "block_B (1: left)"
                     first_seen_step = value
 
             log_data[prefix+f'batch_{i}_first_seen_block'] = str(first_seen_block)
