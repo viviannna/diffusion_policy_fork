@@ -29,6 +29,8 @@ matplotlib.use('Agg')
 
 global global_translate, global_translation_angle, global_translation_distance
 
+global global_rotate, global_rotation_angle
+
 global DISPLAY_BATCHES
 DISPLAY_BATCHES = [6, 7, 8, 9]
 
@@ -180,11 +182,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.tqdm_interval_sec = tqdm_interval_sec
         self.obs_eef_target = obs_eef_target
 
-        
-
-
-
-
     def generate_sequential_filename(self, n_train, output_dir, i, test=False):
         media_dir = pathlib.Path(output_dir).joinpath('media')
         media_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +199,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         filename = batch_dir.joinpath(f'sim_batch_{batch}.mp4')
 
         return str(filename)
-
 
     
     def plot_desired_trajectory(self, desired_trajectory, batch):
@@ -435,8 +431,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'Total Distance Blocks Traveled: {block_distance + block2_distance:.4f}', color='black', fontsize=9, transform=plt.gca().transAxes)
 
         
-
-   
     def plot_targets(self, obs_after, batch):
         
         target_x = obs_after[batch][0][10]
@@ -451,7 +445,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.plot_rectangles(target_x, target_y, orientation=0, color='lightgray', label='Target 1', opacity=0.3)
         self.plot_rectangles(target2_x, target2_y, orientation=0, color='lightgray', label='Target 2', opacity=0.3)
 
-    
 
     def get_effector_distance(self, starting_effector_actual, effector_actual):
 
@@ -546,8 +539,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
             if global_translate: 
 
-                
-
                 obs_step = 1
                 
                 block_before= {
@@ -574,7 +565,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 plt.text(self.text_x, self.text_y_start - (self.get_vertical_offset(batch=batch)), f'(Lied Observation) Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='olive', fontsize=9, transform=plt.gca().transAxes)
 
-
+        
 
 
     def plot_successful(self, obs_after, batch):
@@ -702,6 +693,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         all_rewards = [None] * n_inits
         last_info = [None] * n_inits
 
+        my_last_info = [None] * n_inits # Keeping my own copy because step counts are inconsistent
+        
+
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
             end = min(n_inits, start + n_envs)
@@ -755,7 +749,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
             self.text_x, self.text_y_start = 0.05, 0.95
             self.vertical_offset = 0.025  # Vertical space between lines
-
             
             re_done_per_batch = [False] * num_batches
             closest_dist_per_batch = [(0, 0)] * num_batches
@@ -869,7 +862,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 obs_before = obs
                 step += 1
-
             done_batches = []
             not_done_batches = []
             for i in range(len(re_done_per_batch)):
@@ -890,6 +882,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                 file.write(f"Distance of Block 1, Block 2 to Closest Targest\n")
                 for i in range(len(closest_dist_per_batch)):
+
+                    file.write(f"Batch {i} info: {info[i]}")
                     (closest_dist_b1, closest_dist_b2) = closest_dist_per_batch[i]
                     (closest_target_b1, closest_target_b2) = closest_target_per_batch[i]
                     
@@ -956,11 +950,26 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             total_p2[prefix].append(p2)
             log_data[prefix+f'sim_max_reward_{seed}'] = total_reward
 
+            first_seen_block = "block_0 (right)"
+            first_seen_step = last_info[i]['REACH_0']
+
             # aggregate event counts
             prefix_counts[prefix] += 1
             for key, value in last_info[i].items():
                 delta_count = 1 if value > 0 else 0
                 prefix_event_counts[prefix][key] += delta_count
+
+                # track intent
+                log_data[prefix+f'batch_{i}_'+key] = log_data[prefix + f'batch_{i}_' + key] = float(int((value + 7) // 8)) if value != -1 else -1
+                
+                if (key == "REACH_1") and value != -1 and value < first_seen_step:
+                    first_seen_block = "block_1 (left)"
+                    first_seen_step = value
+
+            log_data[prefix+f'batch_{i}_first_seen_block'] = str(first_seen_block)
+
+            # I want to compare REACH_0 and REACH_1 values and log the first block that we touched
+
 
             # visualize sim
             video_path = all_video_paths[i]

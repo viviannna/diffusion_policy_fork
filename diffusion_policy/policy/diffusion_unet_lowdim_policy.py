@@ -253,16 +253,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
         return nobs, obs_dict
 
-
-
-
-
-
-        
-
-    
-
-
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
@@ -293,9 +283,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             shape = (B, T, Da)
             cond_data = torch.zeros(size=shape, device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+            
         elif self.obs_as_global_cond:
             # condition throught global feature
-
 
             # nobs[:,:To] is the past observation of shape (56, 2, 16) -- 56 batches, 2 timesteps, 16 features
 
@@ -319,16 +309,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
 
                 # elif lie_cond == 1:
                 #     nobs, obs_dict = self.translate_if_blocks_dist_5(self, obs_dict=obs_dict, nobs=nobs, B=B)
-
-
-
-            # Translate observed block position
-
-
-            # goal is to lie about the block position instead
-
-
-
 
             global_cond = nobs[:,:To].reshape(nobs.shape[0], -1)
             shape = (B, T, Da)
