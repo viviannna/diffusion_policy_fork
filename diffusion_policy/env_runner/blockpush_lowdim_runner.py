@@ -35,7 +35,7 @@ global global_rotate, global_rotation_angle, global_rotation_distance
 global_rotate = False
 
 global custom_lies
-ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [(1, 125, 0.2), (5, 200, 0.2)], [], [], []]  # per batch, list out all the custom (step, deg, distance) lies that we want to do. if we keep it consistent here and in policy then any time we get that step = last_lie_step, we can just increment and know which deg and distance to rotate by.  
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []]   # per batch, list out all the custom (step, deg, distance) lies that we want to do. if we keep it consistent here and in policy then any time we get that step = last_lie_step, we can just increment and know which deg and distance to rotate by.  
 
 
 global DISPLAY_BATCHES
@@ -724,9 +724,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         all_rewards = [None] * n_inits
         last_info = [None] * n_inits
 
-        my_last_info = [None] * n_inits # Keeping my own copy because step counts are inconsistent
-        
-
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
             end = min(n_inits, start + n_envs)
@@ -826,7 +823,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'last_lie_step': np.array(last_lie_step), 
                     
                     # Rotate the observed effector positions
-                    'rotate' : np.array([1], dtype=np.float32),
+                    'rotate' : np.array([0], dtype=np.float32),
                     'rotation_angle': np.array([0], dtype=np.float32),
                     'rotation_distance': np.array([0], dtype=np.float32),
 
@@ -835,7 +832,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'translation_angle': np.array([0], dtype=np.float32), # note that you have to add 180 to get downwards
                     'translation_distance': np.array([0], dtype=np.float32),
 
-                    'custom': np.array([0], dtype=np.float32)
+                    'custom': np.array([0], dtype=np.float32), # rotate custom amounts at custom steps
+
+                    'vector_to_target': np.array([1], dtype=np.float32),
+
 
                     
                 }

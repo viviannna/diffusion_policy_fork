@@ -10,6 +10,11 @@ from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.model.diffusion.transformer_for_diffusion import TransformerForDiffusion
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 
+import numpy as np  # Added import for numpy
+
+# Define rotations per batch if needed
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []] 
+
 class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
             model: TransformerForDiffusion,
@@ -89,15 +94,226 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
         return trajectory
 
+    # ========= Lies Functions ============
+    def rotate_point(self, x, y, deg):
+        '''
+        Rotates a given point (x, y) by deg degrees around the origin (0, 0)
+        '''
+        # Convert degrees to radians
+        theta = np.radians(deg)
 
+        # Compute cosine and sine of the angle
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
+        # Apply rotation matrix
+        x_new = x * cos_theta - y * sin_theta
+        y_new = x * sin_theta + y * cos_theta
+
+        return x_new, y_new
+
+    def rotate_observed_effector(self, batch, nobs, rotation_angle, rotation_distance):
+        '''
+        Rotates the value of the effector in the t-1 observation. Lying about where we were two observations ago. We are NOT rotating the trajectory. 
+        '''
+        nobs_copy = nobs.clone()
+        OBS_STEP = 0  # Which of the observations we're at (0 = t-1, first observation)
+
+        effector_actual = {
+            'x': nobs_copy[batch][OBS_STEP][6], 
+            'y': nobs_copy[batch][OBS_STEP][7],
+        }
+
+        rotated_effector = {
+            'x': nobs_copy[batch][OBS_STEP][6], 
+            'y': nobs_copy[batch][OBS_STEP][7],
+        }
+
+        rotated_effector['x'], rotated_effector['y'] = self.translate_at_angle(
+            x=effector_actual['x'], y=effector_actual['y'], 
+            deg=rotation_angle, distance=rotation_distance
+        )
+
+        nobs[batch][OBS_STEP][6] = rotated_effector['x']
+        nobs[batch][OBS_STEP][7] = rotated_effector['y']
+
+        return nobs
+
+    def rotate_if_blocks_dist_5(self, obs_dict, nobs, B):
+        '''
+        Condition: Both blocks have traveled less than DISTANCE_THRESHOLD in the past 5 steps combined.
+        Lie: Rotate the observed effector in t-1 observation by rotation_angle degrees.
+        '''
+        DISTANCE_THRESHOLD = 0.001 
+
+        rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+        
+        for batch in range(B):
+            blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+            
+            if blocks_dist_5 < DISTANCE_THRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+    def rotate_if_effector_dist_5(self, obs_dict, nobs, B):
+        """
+        Condition: The effector has traveled less than DISTANCE_THRESHOLD in the past 5 steps.
+        Lie: Rotate the observed effector in t-1 observation by rotation_angle degrees.
+        """
+        DISTANCE_THRESHOLD = 0.05
+        rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+
+        for batch in range(B):  
+            effector_dist_5 = obs_dict['effector_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+
+            if effector_dist_5 < DISTANCE_THRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+    def rotate_if_first_step(self, obs_dict, nobs, B):
+        """
+        Condition: First step
+        Lie: Rotate the observed effector in the t-1 observation by rotation_angle and rotation_distance.
+        """
+        rotation_angle = int(obs_dict['rotation_angle'])
+        rotation_distance = (obs_dict['rotation_distance']).item()
+
+        for batch in range(B):
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+
+            if curr_step == 1:
+                nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+    def rotate_if_custom(self, obs_dict, nobs, B):
+        for batch in range(B):
+            curr_step = obs_dict['step']
+            batch_rotations = ROTATIONS_PER_BATCH[batch]
+            for step, rotation_angle, rotation_distance in batch_rotations:
+                if curr_step == step:
+                    nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
+                    obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+
+    def translate_at_angle(self, x, y, deg, distance):
+        angle_radians = np.radians(deg)
+        new_x = x + distance * np.cos(angle_radians)
+        new_y = y + distance * np.sin(angle_radians)
+        return new_x, new_y
+
+    def translate_obs_blocks(self, batch, nobs, deg, distance):
+        """
+        Helper function for translate_if_blocks_dist_5
+        """
+        nobs_copy = nobs.clone()
+        OBS_STEP = 0 
+
+        block_actual = {
+            'x': nobs_copy[batch][OBS_STEP][0], 
+            'y': nobs_copy[batch][OBS_STEP][1]
+        }
+
+        nobs[batch][OBS_STEP][0], nobs[batch][OBS_STEP][1] = self.translate_at_angle(
+            x=block_actual['x'], y=block_actual['y'], deg=deg, distance=distance
+        )
+
+        block2_actual = {
+            'x': nobs_copy[batch][OBS_STEP][3], 
+            'y': nobs_copy[batch][OBS_STEP][4]
+        }
+
+        nobs[batch][OBS_STEP][3], nobs[batch][OBS_STEP][4] = self.translate_at_angle(
+            x=block2_actual['x'], y=block2_actual['y'], deg=deg, distance=distance
+        )
+
+        return nobs
+
+    def translate_if_blocks_dist_5(self, obs_dict, nobs, B):
+        """
+        Condition: Both blocks have traveled less than DISTANCE_THRESHOLD in the past 5 steps combined.
+        Lie: Translate the observed block positions in t-1 observation by translation_angle degrees and distance.
+        """
+        DISTANCE_THRESHOLD = 0.05
+
+        translation_angle = int(obs_dict['translation_angle'])
+        distance = (obs_dict['translation_distance']).item()
+
+        for batch in range(B):
+            blocks_dist_5 = obs_dict['blocks_dist'][batch].sum().item()
+            curr_step = obs_dict['step']
+            last_lie_step = obs_dict['last_lie_step'][batch]
+
+            if blocks_dist_5 < DISTANCE_THRESHOLD and curr_step >= 5 and (curr_step - last_lie_step) > 5:
+                nobs = self.translate_obs_blocks(batch, nobs, translation_angle, distance)
+                obs_dict['last_lie_step'][batch] = curr_step
+
+        return nobs, obs_dict
+    
+    def is_touching_block(self, x, y, batch, nobs): 
+        """
+        Helper function that returns whether the effector is touching a block.
+        """
+
+        OBS_STEP = 0
+
+        effector = {
+            'x': nobs[batch][OBS_STEP][6],
+            'y': nobs[batch][OBS_STEP][7]
+        }
+
+        block = {
+            'x': nobs[batch][OBS_STEP][0],
+            'y': nobs[batch][OBS_STEP][1],
+            'orientation': nobs[batch][OBS_STEP][2],
+        }
+
+        block2 = {
+            'x': nobs[batch][OBS_STEP][3],
+            'y': nobs[batch][OBS_STEP][4],
+            'orientation': nobs[batch][OBS_STEP][5],
+        }
+
+        def is_touching(effector, block):
+            # Define the distance threshold for "touching"
+            touch_threshold = 0.1  # Adjust this value as needed
+
+            # Calculate the Euclidean distance between the effector and the block
+            distance = ((effector['x'] - block['x'])**2 + (effector['y'] - block['y'])**2)**0.5
+            
+            return distance <= touch_threshold
+
+        # Check if the effector is touching either block
+        touching_block1 = is_touching(effector, block)
+        touching_block2 = is_touching(effector, block2)
+
+        return touching_block1 or touching_block2
+
+
+
+
+
+    # ========= Predict Action Function ============
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
         """
-
         assert 'obs' in obs_dict
-        assert 'past_action' not in obs_dict # not implemented yet
+        assert 'past_action' not in obs_dict  # Not implemented yet
         nobs = self.normalizer['obs'].normalize(obs_dict['obs'])
         B, _, Do = nobs.shape
         To = self.n_obs_steps
@@ -105,15 +321,35 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         T = self.horizon
         Da = self.action_dim
 
-        # build input
+        # Build input
         device = self.device
         dtype = self.dtype
 
-        # handle different ways of passing observation
+        # Handle different ways of passing observation
         cond = None
         cond_data = None
         cond_mask = None
         if self.obs_as_cond:
+            # New code to apply lies
+            lie_cond = int(obs_dict.get('lie_cond', 0))
+
+            # Rotate observed effector
+            rotate = int(obs_dict.get('rotate', 0))
+            if rotate != 0: 
+                if lie_cond == 0:
+                    nobs, obs_dict = self.rotate_if_blocks_dist_5(obs_dict, nobs, B)    
+                elif lie_cond == 1: 
+                    nobs, obs_dict = self.rotate_if_effector_dist_5(obs_dict, nobs, B)
+                elif lie_cond == 2: 
+                    nobs, obs_dict = self.rotate_if_first_step(obs_dict, nobs, B)
+                elif lie_cond == 3: 
+                    nobs, obs_dict = self.rotate_if_custom(obs_dict, nobs, B)
+
+            translate = int(obs_dict.get('translate', 0))
+            if translate != 0:
+                if lie_cond == 0:
+                    nobs, obs_dict = self.translate_if_blocks_dist_5(obs_dict, nobs, B)
+            
             cond = nobs[:,:To]
             shape = (B, T, Da)
             if self.pred_action_steps_only:
@@ -121,25 +357,25 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             cond_data = torch.zeros(size=shape, device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
-            # condition through impainting
+            # Condition through inpainting
             shape = (B, T, Da+Do)
             cond_data = torch.zeros(size=shape, device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
             cond_data[:,:To,Da:] = nobs[:,:To]
             cond_mask[:,:To,Da:] = True
 
-        # run sampling
+        # Run sampling
         nsample = self.conditional_sample(
             cond_data, 
             cond_mask,
             cond=cond,
             **self.kwargs)
         
-        # unnormalize prediction
+        # Unnormalize prediction
         naction_pred = nsample[...,:Da]
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
 
-        # get action
+        # Get action
         if self.pred_action_steps_only:
             action = action_pred
         else:
@@ -149,7 +385,8 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         
         result = {
             'action': action,
-            'action_pred': action_pred
+            'action_pred': action_pred,
+            'last_lie_step': obs_dict.get('last_lie_step')  # Include if available
         }
         if not self.obs_as_cond:
             nobs_pred = nsample[...,Da:]
@@ -159,7 +396,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             result['obs_pred'] = obs_pred
         return result
 
-    # ========= training  ============
+    # ========= Training Functions ============
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
@@ -172,13 +409,13 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
                 betas=tuple(betas))
 
     def compute_loss(self, batch):
-        # normalize input
+        # Normalize input
         assert 'valid_mask' not in batch
         nbatch = self.normalizer.normalize(batch)
         obs = nbatch['obs']
         action = nbatch['action']
 
-        # handle different ways of passing observation
+        # Handle different ways of passing observation
         cond = None
         trajectory = action
         if self.obs_as_cond:
@@ -191,13 +428,13 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         else:
             trajectory = torch.cat([action, obs], dim=-1)
         
-        # generate impainting mask
+        # Generate inpainting mask
         if self.pred_action_steps_only:
             condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
         else:
             condition_mask = self.mask_generator(trajectory.shape)
 
-        # Sample noise that we'll add to the images
+        # Sample noise to add to the images
         noise = torch.randn(trajectory.shape, device=trajectory.device)
         bsz = trajectory.shape[0]
         # Sample a random timestep for each image
@@ -206,14 +443,13 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             (bsz,), device=trajectory.device
         ).long()
         # Add noise to the clean images according to the noise magnitude at each timestep
-        # (this is the forward diffusion process)
         noisy_trajectory = self.noise_scheduler.add_noise(
             trajectory, noise, timesteps)
         
-        # compute loss mask
+        # Compute loss mask
         loss_mask = ~condition_mask
 
-        # apply conditioning
+        # Apply conditioning
         noisy_trajectory[condition_mask] = trajectory[condition_mask]
         
         # Predict the noise residual
