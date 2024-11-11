@@ -39,9 +39,16 @@ def main(checkpoint, output_dir, device, n_test=None):
         if os.path.exists('plots'):
             shutil.rmtree('plots')
 
+        if os.path.exists('test'):
+            shutil.rmtree('test')
+
         for batch_dir in batches:
             directory = f'plots/batch_{batch_dir}'
             os.makedirs(directory)  # Recreate the directory
+
+            directory_test = f'test/batch_{batch_dir}'
+            os.makedirs(directory_test)  # Recreate the directory
+
 
         # delete data/block_pushing_multimodal/eval and then make new
         if os.path.exists('data/blockpush_eval_output/media'):
@@ -49,7 +56,7 @@ def main(checkpoint, output_dir, device, n_test=None):
         os.makedirs('data/blockpush_eval_output/media')
 
     def convert_step_images_to_gif(batches):
-        
+        # TODO make the test one images too 
         for batch_dir in batches:
             media_dir = pathlib.Path(output_dir).joinpath('media')
             mp4_filename = media_dir.joinpath(f'batch_{batch_dir}/2d_batch_{batch_dir}.mp4')

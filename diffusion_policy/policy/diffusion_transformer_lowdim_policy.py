@@ -12,8 +12,11 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 
 import numpy as np  # Added import for numpy
 
+import diffusion_policy.policy.utils.plotting_utils as pu
+
 # Define rotations per batch if needed
 ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []] 
+PRESET_GOALS =  [{}, {}, {}, {}, {}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}]  # Define preset goals for each batch
 
 class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
@@ -263,7 +266,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
         return nobs, obs_dict
     
-    def is_touching_block(self, x, y, batch, nobs): 
+    def is_touching_block(self, batch, nobs): 
         """
         Helper function that returns whether the effector is touching a block.
         """
@@ -297,11 +300,81 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             return distance <= touch_threshold
 
         # Check if the effector is touching either block
-        touching_block1 = is_touching(effector, block)
-        touching_block2 = is_touching(effector, block2)
+        if (is_touching(effector, block)):
+            return "block_0"
+        elif (is_touching(effector, block2)):
+            return "block_1"
+        else:
+            return None
 
-        return touching_block1 or touching_block2
+    def add_vector_to_target(self, obs_dict, nobs, batch, step, touching_block):
+        
+        nobsc = nobs.cpu().detach().numpy()
+        OBS_STEP = 0
+        if touching_block == "block_0":
+            block = {
 
+                'x': nobsc[batch][OBS_STEP][0],
+                'y': nobsc[batch][OBS_STEP][1],
+                'orientation': nobs[batch][OBS_STEP][2],
+            }
+        else:
+            block = {
+                'x': nobsc[batch][OBS_STEP][3],
+                'y': nobsc[batch][OBS_STEP][4],
+                'orientation': nobsc[batch][OBS_STEP][5],
+            }
+
+        preset_target = PRESET_GOALS[batch][touching_block]
+
+        if preset_target == "target_0":
+            target = {
+                'x': nobsc[batch][OBS_STEP][10],
+                'y': nobsc[batch][OBS_STEP][11],
+                'orientation': nobsc[batch][OBS_STEP][12],
+            }
+        else: 
+            target = {
+                'x': nobsc[batch][OBS_STEP][13],
+                'y': nobsc[batch][OBS_STEP][14],
+                'orientation': nobsc[batch][OBS_STEP][15],
+            }
+
+        # Calculate the vector pointing from the effector to the block
+
+        ideal_x = block['x'] - target['x']
+        ideal_y = block['y'] - target['y']
+
+        return {'ideal_x': ideal_x, 'ideal_y': ideal_y}
+
+    def align_to_target(self, obs_dict, nobs, B):
+
+        # for each batch, check that the effector is touching a block. 
+        # if it is, call a function to create a vector that points from the effector to the (**closest??**) block -- perhaps not closest but rather the block that I predetermined per batch (lowkey what if i pass in a starting tuple of the (block, target) and the order matters. once its in the goal pop it off? .. or lets just do one at a time and do the first one first. need to make sure to update the last_lie_step so that 
+
+        ideal_vectors = []
+
+        curr_step = obs_dict['step']
+        # NOTE: This is doing it for all batches but I think we could reduce this to only the batches in DISPLAY_BATCHES
+        for batch in range(B):
+
+        
+            # see which block it is touching
+            block = self.is_touching_block(batch, nobs)
+
+            # TODO: eventually fix this to the actual value instead of batch >= 5
+            if block is not None and batch >= 5 :
+                ideal_vector = self.add_vector_to_target(obs_dict, nobs, batch, curr_step, block)
+                ideal_vectors.append(ideal_vector)
+
+        return ideal_vectors
+
+            # follow PRESET_GOALS to check which target we want this block to go towards
+
+
+            # based off that, create a vector that points from the effector to the target
+
+            # update the effector position (LIE) to be the effector position + vector
 
 
 
@@ -320,6 +393,10 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         assert Do == self.obs_dim
         T = self.horizon
         Da = self.action_dim
+        
+        step = int(obs_dict['step'].item())
+        obs_before = obs_dict['obs'].cpu().detach().numpy()
+        
 
         # Build input
         device = self.device
@@ -350,6 +427,10 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
                 if lie_cond == 0:
                     nobs, obs_dict = self.translate_if_blocks_dist_5(obs_dict, nobs, B)
             
+            vector_to_target = int(obs_dict.get('vector_to_target', 0))
+            if vector_to_target != 0:
+                ideal_vectors = self.align_to_target(obs_dict, nobs, B)
+
             cond = nobs[:,:To]
             shape = (B, T, Da)
             if self.pred_action_steps_only:
@@ -387,13 +468,21 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             'action': action,
             'action_pred': action_pred,
             'last_lie_step': obs_dict.get('last_lie_step')  # Include if available
+            
         }
+
+        # if 'ideal_vectors' in locals() or 'ideal_vectors' in globals():
+        #     result['ideal_vectors'] = ideal_vectors
+        
         if not self.obs_as_cond:
             nobs_pred = nsample[...,Da:]
             obs_pred = self.normalizer['obs'].unnormalize(nobs_pred)
             action_obs_pred = obs_pred[:,start:end]
             result['action_obs_pred'] = action_obs_pred
             result['obs_pred'] = obs_pred
+        
+        # pu.initiate_plot(step, obs_before)
+        # pu.close_plot(step)
         return result
 
     # ========= Training Functions ============
