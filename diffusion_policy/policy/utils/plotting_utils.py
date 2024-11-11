@@ -469,3 +469,31 @@ def plot_env_after_step(step, desired_trajectory, obs_before, obs_after, batch, 
 
         # Need to update the value of distance between for all blocks
 
+
+def plot_direction_vector(batch, curr_step, obs_before, obs_rotated, obs_step):
+    (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_step_{curr_step}"]
+
+    old_effector = {
+        'x': obs_before[batch][obs_step][6].item(), 
+        'y': obs_before[batch][obs_step][7].item(),
+    }
+
+    new_effector = {
+        'x': obs_rotated[batch][obs_step][6].item(), 
+        'y': obs_rotated[batch][obs_step][7].item(),
+    }
+
+    # Calculate the change in x and y for the arrow direction
+    delta_x = new_effector['x'] - old_effector['x']
+    delta_y = new_effector['y'] - old_effector['y']
+
+    # Plot the arrow from the old effector position to the new effector position
+    ax.arrow(
+        old_effector['x'], old_effector['y'],  # Start of the arrow at the old effector position
+        delta_x, delta_y,                       # Arrow components (change in x and y)
+        head_width=0.025, head_length=0.01,     # Adjust arrowhead size for visibility
+        fc='yellow', ec='yellow',               # Arrow color
+        label="Lied Direction"
+    )
+
+

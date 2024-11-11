@@ -396,27 +396,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             num_batches = obs.shape[0]
             blocks_dist = {batch: deque(maxlen=5) for batch in range(num_batches)}
             effector_dist = {batch: deque(maxlen=5) for batch in range(num_batches)}
-
-            # self.total_effector_distance = dict()
-            # self.total_block_distance_traveled = dict()
-            # self.total_block2_distance_traveled = dict()
-            # self.total_block_to_target_distance = dict()
-            # self.total_block_to_target2_distance = dict()
-            # self.total_block2_to_target_distance = dict()
-            # self.total_block2_to_target2_distance = dict()
-
-            # for batch in DISPLAY_BATCHES:
-            #     self.total_effector_distance[batch] = []
-            #     self.total_block_distance_traveled[batch] = []
-            #     self.total_block2_distance_traveled[batch] = []
-                
-            #     self.total_block_to_target_distance[batch] = []
-            #     self.total_block_to_target2_distance[batch] = []
-            #     self.total_block2_to_target_distance[batch] = []
-            #     self.total_block2_to_target2_distance[batch] = []
-
-            self.text_x, self.text_y_start = 0.05, 0.95
-            self.vertical_offset = 0.025  # Vertical space between lines
             
             re_done_per_batch = [False] * num_batches
             closest_dist_per_batch = [(0, 0)] * num_batches
@@ -424,7 +403,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             last_lie_step = [0] * num_batches
 
             lie_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1, 'first_step': 2, 'custom':3}
-            
 
             while not done:
 
@@ -480,7 +458,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'custom': np.array([0], dtype=np.float32), # rotate custom amounts at custom steps
 
                     'vector_to_target': np.array([0], dtype=np.float32),
-                    
+
+                    'four_directions': np.array([1], dtype=np.float32),
                 }
 
                 # Setting global variables so I can use them in plot_lie_step(). Would be much better to just have a dictionary of my lie configuration. 
@@ -521,11 +500,6 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 if 'last_lie_step' in action_dict:
                     last_lie_step = action_dict['last_lie_step'].detach().to('cpu').numpy()
 
-                # if 'ideal_vectors' in action_dict:
-                #     ideal_trajectories = action_dict['ideal_vectors']
-
-                
-
                 obs_dict = dict_apply(np_obs_dict, lambda x: torch.from_numpy(x).to(device=device))
 
                 np_action_dict = dict_apply(action_dict, lambda x: x.detach().to('cpu').numpy())
@@ -556,15 +530,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                     blocks_distance_traveled = pu.TOTAL_BLOCK_DISTANCE_TRAVELED[batch][-1] + pu.TOTAL_BLOCK2_DISTANCE_TRAVELED[batch][-1]
                     blocks_dist[batch].append(blocks_distance_traveled)
-                    
-                    # block_distance_traveled = self.get_total_block_distance_traveled(obs_before=obs_before, obs_after=obs, batch=batch)
-                    # blocks_dist[batch].append(block_distance_traveled)
 
                     effector_distance = pu.TOTAL_EFFECTOR_DISTANCE_TRAVELED[batch][-1]
                     effector_dist[batch].append(effector_distance)
-
-                    # effector_distance = self.get_effector_distance_traveled(obs_before=obs_before, obs_after=obs, batch=batch)
-                    # effector_dist[batch].append(effector_distance)
 
                 obs_before = obs
                 step += 1

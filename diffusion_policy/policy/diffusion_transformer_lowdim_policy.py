@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-
+import copy 
 from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.model.diffusion.transformer_for_diffusion import TransformerForDiffusion
@@ -115,21 +115,20 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
         return x_new, y_new
 
-    def rotate_observed_effector(self, batch, nobs, rotation_angle, rotation_distance):
+    def rotate_observed_effector(self, batch, nobs, rotation_angle, rotation_distance, obs_step=0):
         '''
         Rotates the value of the effector in the t-1 observation. Lying about where we were two observations ago. We are NOT rotating the trajectory. 
         '''
-        nobs_copy = nobs.clone()
-        OBS_STEP = 0  # Which of the observations we're at (0 = t-1, first observation)
+        nobs_copy = copy.deepcopy(nobs)
 
         effector_actual = {
-            'x': nobs_copy[batch][OBS_STEP][6], 
-            'y': nobs_copy[batch][OBS_STEP][7],
+            'x': nobs_copy[batch][obs_step][6], 
+            'y': nobs_copy[batch][obs_step][7],
         }
 
         rotated_effector = {
-            'x': nobs_copy[batch][OBS_STEP][6], 
-            'y': nobs_copy[batch][OBS_STEP][7],
+            'x': nobs_copy[batch][obs_step][6], 
+            'y': nobs_copy[batch][obs_step][7],
         }
 
         rotated_effector['x'], rotated_effector['y'] = self.translate_at_angle(
@@ -137,10 +136,10 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             deg=rotation_angle, distance=rotation_distance
         )
 
-        nobs[batch][OBS_STEP][6] = rotated_effector['x']
-        nobs[batch][OBS_STEP][7] = rotated_effector['y']
+        nobs_copy[batch][obs_step][6] = rotated_effector['x']
+        nobs_copy[batch][obs_step][7] = rotated_effector['y']
 
-        return nobs
+        return nobs_copy
 
     def rotate_if_blocks_dist_5(self, obs_dict, nobs, B):
         '''
@@ -252,6 +251,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         """
         DISTANCE_THRESHOLD = 0.05
 
+        
         translation_angle = int(obs_dict['translation_angle'])
         distance = (obs_dict['translation_distance']).item()
 
@@ -264,6 +264,8 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
                 nobs = self.translate_obs_blocks(batch, nobs, translation_angle, distance)
                 obs_dict['last_lie_step'][batch] = curr_step
 
+        # Lie on the actual values THEN normalize
+       
         return nobs, obs_dict
     
     def is_touching_block(self, batch, nobs): 
@@ -379,6 +381,63 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
 
 
+    def add_four_directions(self, obs_dict, B):
+
+        '''
+        Condition: At each step, user can input {up, down, left, right} to lie about the effector's position. 
+        Lie: Rotate the observed effector in t-1 observation by preset (angle, distance) values based on user input.
+        '''
+
+        obs = obs_dict['obs']
+        curr_step = int(obs_dict['step'].item())
+        four_directions = {
+            'up': (90, 0.1),
+            'down': (270, 0.1),
+            'left': (180, 0.1),
+            'right': (0, 0.1)
+        }
+
+        directions_per_step = {batch: [(0, 0.1) for _ in range(200)] for batch in range(B)}
+  
+        for batch in range(B):
+            # (angle, distance) = directions_per_step[batch][curr_step]
+
+            (angle, distance) = (0, 0.1)
+
+            # the nobs returned in these already have the rotated value
+
+            # print("Original:\n ")
+            # print(f"{obs[batch][0][6].item()}, {obs[batch][0][7].item()}")
+            # print(f"{obs[batch][1][6].item()}, {obs[batch][1][7].item()}")
+            # print(f"{obs[batch][2][6].item()}, {obs[batch][2][7].item()}")
+
+            
+            rotated_0 = self.rotate_observed_effector(batch, obs, angle, distance)
+
+            # print("Only step 0 rotated: \n")
+            # print(f"{rotated_0[batch][0][6].item()}, {rotated_0[batch][0][7].item()}")
+            # print(f"{rotated_0[batch][1][6].item()}, {rotated_0[batch][1][7].item()}")
+            # print(f"{rotated_0[batch][2][6].item()}, {rotated_0[batch][2][7].item()}")
+
+            rotated_0_1 = self.rotate_observed_effector(batch, rotated_0, angle, distance, obs_step=1)
+            # print("Step 0 and 1 rotated: \n")
+            # print(f"{rotated_0_1[batch][0][6].item()}, {rotated_0_1[batch][0][7].item()}")
+            # print(f"{rotated_0_1[batch][1][6].item()}, {rotated_0_1[batch][1][7].item()}")
+            # print(f"{rotated_0_1[batch][2][6].item()}, {rotated_0_1[batch][2][7].item()}")
+
+
+            obs_dict['last_lie_step'][batch] = curr_step
+            if batch in pu.DISPLAY_BATCHES: 
+                pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=0)
+                pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=1)
+
+        # Lie on regular obs and then normalize
+        nobs = self.normalizer['obs'].normalize(rotated_0_1)
+        return nobs, obs_dict
+
+
+
+
     # ========= Predict Action Function ============
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -387,16 +446,13 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         """
         assert 'obs' in obs_dict
         assert 'past_action' not in obs_dict  # Not implemented yet
+        
         nobs = self.normalizer['obs'].normalize(obs_dict['obs'])
         B, _, Do = nobs.shape
         To = self.n_obs_steps
         assert Do == self.obs_dim
         T = self.horizon
         Da = self.action_dim
-        
-        step = int(obs_dict['step'].item())
-        obs_before = obs_dict['obs'].cpu().detach().numpy()
-        
 
         # Build input
         device = self.device
@@ -430,6 +486,10 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             vector_to_target = int(obs_dict.get('vector_to_target', 0))
             if vector_to_target != 0:
                 ideal_vectors = self.align_to_target(obs_dict, nobs, B)
+
+            four_directions = int(obs_dict.get('four_directions', 0))
+            if four_directions != 0:
+                nobs, obs_dict = self.add_four_directions(obs_dict, B)
 
             cond = nobs[:,:To]
             shape = (B, T, Da)
