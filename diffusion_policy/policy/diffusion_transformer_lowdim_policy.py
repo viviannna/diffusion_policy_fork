@@ -16,7 +16,7 @@ import diffusion_policy.policy.utils.plotting_utils as pu
 
 # Define rotations per batch if needed
 ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []] 
-PRESET_GOALS =  [{}, {}, {}, {}, {}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}, {"block_0":"target_0", "block_1":"target_1"}]  # Define preset goals for each batch
+
 
 class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
@@ -356,7 +356,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
         ideal_vectors = []
 
-        curr_step = obs_dict['step']
+        curr_step = int(obs_dict['step'])
         # NOTE: This is doing it for all batches but I think we could reduce this to only the batches in DISPLAY_BATCHES
         for batch in range(B):
 
@@ -397,46 +397,149 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             'right': (0, 0.1)
         }
 
-        directions_per_step = {batch: [(0, 0.1) for _ in range(200)] for batch in range(B)}
+        directions_per_step = {batch: [(0, 0.2) for _ in range(200)] for batch in range(B)}
   
+        # I think the problem is that I'm then refeeeding obs into the function instead of rotated_0_1
+
+        rotated_0_1 = obs
         for batch in range(B):
             # (angle, distance) = directions_per_step[batch][curr_step]
 
             (angle, distance) = (0, 0.1)
 
-            # the nobs returned in these already have the rotated value
-
-            # print("Original:\n ")
-            # print(f"{obs[batch][0][6].item()}, {obs[batch][0][7].item()}")
-            # print(f"{obs[batch][1][6].item()}, {obs[batch][1][7].item()}")
-            # print(f"{obs[batch][2][6].item()}, {obs[batch][2][7].item()}")
-
-            
-            rotated_0 = self.rotate_observed_effector(batch, obs, angle, distance)
-
-            # print("Only step 0 rotated: \n")
-            # print(f"{rotated_0[batch][0][6].item()}, {rotated_0[batch][0][7].item()}")
-            # print(f"{rotated_0[batch][1][6].item()}, {rotated_0[batch][1][7].item()}")
-            # print(f"{rotated_0[batch][2][6].item()}, {rotated_0[batch][2][7].item()}")
+            rotated_0 = self.rotate_observed_effector(batch, rotated_0_1, angle, distance)
 
             rotated_0_1 = self.rotate_observed_effector(batch, rotated_0, angle, distance, obs_step=1)
-            # print("Step 0 and 1 rotated: \n")
-            # print(f"{rotated_0_1[batch][0][6].item()}, {rotated_0_1[batch][0][7].item()}")
-            # print(f"{rotated_0_1[batch][1][6].item()}, {rotated_0_1[batch][1][7].item()}")
-            # print(f"{rotated_0_1[batch][2][6].item()}, {rotated_0_1[batch][2][7].item()}")
-
 
             obs_dict['last_lie_step'][batch] = curr_step
             if batch in pu.DISPLAY_BATCHES: 
                 pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=0)
                 pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=1)
 
+                # print("Step 0 and 1 rotated (after print): \n")
+                # print(f"{rotated_0_1[batch][0][6].item()}, {rotated_0_1[batch][0][7].item()}")
+                # print(f"{rotated_0_1[batch][1][6].item()}, {rotated_0_1[batch][1][7].item()}")
+                # print(f"{rotated_0_1[batch][2][6].item()}, {rotated_0_1[batch][2][7].item()}")
+
+                # plot the side
+                self.get_push_side(obs, batch, curr_step)
+     
         # Lie on regular obs and then normalize
         nobs = self.normalizer['obs'].normalize(rotated_0_1)
+
         return nobs, obs_dict
+    
+
+
+    def determine_opposite_side_coordinate(self, block_pos, target_pos, width=0.05, height=0.05):
+         # Compute direction vector from block to target
+        direction_vector = {
+            'x': target_pos['x'] - block_pos['x'],
+            'y': target_pos['y'] - block_pos['y']
+        }
+
+        orientation = block_pos['orientation'].item()
+        
+        # Determine the dominant movement direction
+        if abs(direction_vector['x']) > abs(direction_vector['y']):
+            # Horizontal movement is dominant
+            if direction_vector['x'] > 0:
+                # Desired trajectory is to the right, so opposite side is the left
+                offset_x, offset_y = -width / 2, 0
+            else:
+                # Desired trajectory is to the left, so opposite side is the right
+                offset_x, offset_y = width / 2, 0
+        else:
+            # Vertical movement is dominant
+            if direction_vector['y'] > 0:
+                # Desired trajectory is upward, so opposite side is the bottom
+                offset_x, offset_y = 0, -height / 2
+            else:
+                # Desired trajectory is downward, so opposite side is the top
+                offset_x, offset_y = 0, height / 2
+
+        # Rotate the offset by the block's orientation
+        cos_theta = np.cos(orientation)
+        sin_theta = np.sin(orientation)
+        rotated_offset_x = cos_theta * offset_x - sin_theta * offset_y
+        rotated_offset_y = sin_theta * offset_x + cos_theta * offset_y
+
+        # Calculate the opposite side coordinate
+        opposite_side_coordinate = {
+            'x': block_pos['x'] + rotated_offset_x,
+            'y': block_pos['y'] + rotated_offset_y
+        }
+
+        return opposite_side_coordinate
 
 
 
+    def get_push_side(self, obs, batch, curr_step):
+        
+        def get_distance_between(x1, y1, x2, y2):
+            """
+            Calculate the distance between two points. 
+            """
+
+            return np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        
+
+        # hard code which block should go into one target. 
+        # TODO: make this for each step. going to start by only focusing on batch 6
+
+    
+        preset_goals = {'block_1': 'target_0', 'block_0': 'target_1'}
+
+            
+        # 1. Identify the closest block to the effector
+        closest_block = None
+        min_distance = float('inf')
+
+        OBS_STEP = 2 # Most recent step (current) 
+
+        # effector = {
+        #     'x': obs[batch][OBS_STEP][6],
+        #     'y': obs[batch][OBS_STEP][7]
+        # }
+
+        # block = {
+        #     'x': obs[batch][OBS_STEP][0],
+        #     'y': obs[batch][OBS_STEP][1], 
+        #     'orientation': obs[batch][OBS_STEP][2]
+        # }
+
+
+        # block_target = preset_goals['block_0']
+        # block_to_effector = get_distance_between(effector['x'], effector['y'], block['x'], block['y'])
+
+       
+
+        # # block2_target = preset_goals['block_1']
+        # # block2_to_effector = get_distance_between(effector['x'], effector['y'], block2['x'], block2['y'])
+
+
+        # # # 2. For this closest block and its target, determine which side we should go towards. 
+
+        # # NOTE: for now going to hard code to (block 1, target 0), I'll fix this later
+
+        block = {
+            'x': obs[batch][OBS_STEP][0],
+            'y': obs[batch][OBS_STEP][1],
+            'orientation': obs[batch][OBS_STEP][2]
+        }
+
+        target = {
+            'x': obs[batch][OBS_STEP][10],
+            'y': obs[batch][OBS_STEP][11]
+        }
+
+        opposite_side_coordinate = self.determine_opposite_side_coordinate(block, target)
+        side_x, side_y = opposite_side_coordinate['x'].item(), opposite_side_coordinate['y'].item()
+
+        pu.plot_coordinate(side_x, side_y, batch, curr_step)
+        # so now we have our block and our target position, lets determine which side of the block we should go on
+
+        
 
     # ========= Predict Action Function ============
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:

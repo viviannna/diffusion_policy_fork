@@ -497,3 +497,6 @@ def plot_direction_vector(batch, curr_step, obs_before, obs_rotated, obs_step):
     )
 
 
+def plot_coordinate(x,y, batch, curr_step):
+    (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_step_{curr_step}"]
+    ax.scatter(x, y, color='black', marker='o', s=100, label='Coordinate')
