@@ -459,7 +459,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
                     'vector_to_target': np.array([0], dtype=np.float32),
 
-                    'four_directions': np.array([1], dtype=np.float32),
+                    'four_directions': np.array([0], dtype=np.float32),
                 }
 
                 # Setting global variables so I can use them in plot_lie_step(). Would be much better to just have a dictionary of my lie configuration. 

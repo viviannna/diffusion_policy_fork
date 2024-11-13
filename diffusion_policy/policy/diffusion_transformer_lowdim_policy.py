@@ -397,22 +397,25 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             'right': (0, 0.1)
         }
 
-        directions_per_step = {batch: [(0, 0.2) for _ in range(200)] for batch in range(B)}
+        # directions_per_step = {batch: [(0, 0.2) for _ in range(200)] for batch in range(B)}
   
         # I think the problem is that I'm then refeeeding obs into the function instead of rotated_0_1
 
         rotated_0_1 = obs
+        # rotated_0 = obs
+
         for batch in range(B):
             # (angle, distance) = directions_per_step[batch][curr_step]
 
-            (angle, distance) = (0, 0.1)
-
+            (angle, distance) = (180, 0.1)
+            # rotated_0 = self.rotate_observed_effector(batch, rotated_0, angle, distance, obs_step=0)
             rotated_0 = self.rotate_observed_effector(batch, rotated_0_1, angle, distance)
-
             rotated_0_1 = self.rotate_observed_effector(batch, rotated_0, angle, distance, obs_step=1)
 
             obs_dict['last_lie_step'][batch] = curr_step
             if batch in pu.DISPLAY_BATCHES: 
+                # pu.plot_direction_vector(batch, curr_step, obs, rotated_0, obs_step=0)
+
                 pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=0)
                 pu.plot_direction_vector(batch, curr_step, obs, rotated_0_1, obs_step=1)
 
@@ -425,7 +428,8 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
                 self.get_push_side(obs, batch, curr_step)
      
         # Lie on regular obs and then normalize
-        nobs = self.normalizer['obs'].normalize(rotated_0_1)
+        nobs = self.normalizer['obs'].normalize(rotated_0)
+        # nobs = self.normalizer['obs'].normalize(rotated_0_1)
 
         return nobs, obs_dict
     
