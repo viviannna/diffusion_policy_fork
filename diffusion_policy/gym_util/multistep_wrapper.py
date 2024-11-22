@@ -110,10 +110,16 @@ class MultiStepWrapper(gym.Wrapper):
 
             self.obs.append(observation)
             self.reward.append(reward)
-            if (self.max_episode_steps is not None) \
-                and (len(self.reward) >= self.max_episode_steps):
-                # truncation
+            # if (self.max_episode_steps is not None) \
+            #     and (len(self.reward) >= self.max_episode_steps):
+            #     # truncation
+            #     done = True
+
+            # Override and shorten 
+            if (len(self.reward) >= 20):
                 done = True
+
+
             self.done.append(done)
             self._add_info(info)
 

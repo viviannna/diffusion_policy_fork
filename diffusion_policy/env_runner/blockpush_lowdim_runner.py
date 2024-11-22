@@ -45,7 +45,7 @@ ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []]   # per batch, li
 
 
 global DISPLAY_BATCHES
-DISPLAY_BATCHES = [6, 7, 8, 9]
+DISPLAY_BATCHES = [6]
 
 class BlockPushLowdimRunner(BaseLowdimRunner):
     def __init__(self,
@@ -404,11 +404,11 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
 
             lie_conds = {'blocks_dist_5': 0, 'effector_dist_5': 1, 'first_step': 2, 'custom':3}
 
+            pu.init_global_plots(obs)
+
             while not done:
 
                 pu.init_plots(step)
-
-
 
                 self.inner_step = [0] * num_batches
 
@@ -525,8 +525,13 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             
                 # Compute distance traveled by blocks and update rolling lists
                 for batch in range(num_batches):
+                    pu.plot_steps_taken(obs_after=obs, batch=batch)
 
+                    
                     pu.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_lie_step=last_lie_step)
+
+                    if step in pu.PLOT_DENOISING_STEPS:
+                        pu.close_denoising_trajectories(desired_trajectory=action, run_step=int(step), obs_after=obs, obs_before=obs_before)
 
                     blocks_distance_traveled = pu.TOTAL_BLOCK_DISTANCE_TRAVELED[batch][-1] + pu.TOTAL_BLOCK2_DISTANCE_TRAVELED[batch][-1]
                     blocks_dist[batch].append(blocks_distance_traveled)
@@ -544,6 +549,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                         done_batches.append(i)
                     else:
                         not_done_batches.append(i)
+            
+            print("total number of steps: ", pu.GLOBAL_STEP_COUNTER)
+
 
             success_larger_threshold = 0 
             ss_path = pathlib.Path(self.output_dir).joinpath('summary.txt')
@@ -591,6 +599,8 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
             all_rewards[this_global_slice] = env.call('get_attr', 'reward')[this_local_slice]
             last_info[this_global_slice] = [dict((k,v[-1]) for k, v in x.items()) for x in info][this_local_slice]
+
+            pu.close_global_plots(obs, last_info)
 
         # log
         total_rewards = collections.defaultdict(list)
