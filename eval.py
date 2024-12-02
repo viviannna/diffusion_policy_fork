@@ -105,6 +105,11 @@ def main(checkpoint, output_dir, device, n_test=None, test_start_seed=None):
     # load checkpoint
     payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+
+
+
+
+    # print("cfg:\n", cfg)
     cls = hydra.utils.get_class(cfg._target_)
     # workspace = cls(cfg, output_dir=output_dir)
     workspace = cls(cfg)
@@ -127,7 +132,6 @@ def main(checkpoint, output_dir, device, n_test=None, test_start_seed=None):
 
     if test_start_seed is not None:
         cfg.task.env_runner['test_start_seed'] = test_start_seed
-
 
     # run eval
     env_runner = hydra.utils.instantiate(

@@ -60,7 +60,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         self.num_inference_steps = num_inference_steps
     
     # ========= inference  ============
-    def conditional_sample(self, step, 
+    def conditional_sample(self, run_step, 
             condition_data, condition_mask,
             cond=None, generator=None,
             # keyword arguments to scheduler.step
@@ -69,41 +69,26 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         model = self.model
         scheduler = self.noise_scheduler
 
-        # NOTE: Needed for testing if a variety of trajectories can be generated after a given point. 
-        # if step == 8: 
-        #     torch.manual_seed(40)
-        #     print("Overriding the torch seed: ", torch.initial_seed())
+        # Trajectory is of shape (# steps x batch size x coordinates)
+        
+        # Sample from Gaussian Noise
+        trajectory = torch.randn(
+            size=condition_data.shape, 
+            dtype=condition_data.dtype,
+            device=condition_data.device,
+            generator=generator)
 
-        # Completely random starting noise: 
-        # trajectory = torch.randn(
-        #     size=condition_data.shape, 
-        #     dtype=condition_data.dtype,
-        #     device=condition_data.device,
-        #     generator=generator)
-
-        # Add salient noise -- straight line vector
-
-        # Custom Noise
-        single_trajectory = torch.tensor([[0, 0], [-1, 0], [-2, 0], [-3, 0], [-4, 0]], dtype=torch.float32, device=condition_data.device)
-        trajectory = single_trajectory.unsqueeze(0).repeat(7, 1, 1)
-        # trajectory = self.normalizer['action'].normalize(trajectory)
-
-        if step == 10:
-            print(f"Step {step} Noise Input: ", trajectory[6])
-
-    
         # set step values
         scheduler.set_timesteps(self.num_inference_steps)
         
         # t counts down 
         for t in scheduler.timesteps:
             
-            
             # 1. apply conditioning
             trajectory[condition_mask] = condition_data[condition_mask]
 
             # 2. predict model output
-            model_output = model(trajectory, t, cond)
+            model_output = model(trajectory, t, cond) # the cond is what is being used to condition
 
             # 3. compute previous image: x_t -> x_t-1
             trajectory = scheduler.step(
@@ -114,10 +99,10 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             
             # NOTE: This plotting pre-conditioning. Should probably also plot post conditioning. 
 
-            if (t.item() in {99, 50, 0}) and (int(step) in pu.PLOT_DENOISING_STEPS):
+            if (t.item() in pu.DISPLAY_DENOISING_STEPS) and (int(run_step) in pu.DISPLAY_STEPS):
 
                 unnorm_trajectory = self.normalizer['action'].unnormalize(trajectory)
-                pu.plot_denoising_trajectories(unnorm_trajectory, run_step=int(step), denoising_step=int(t))
+                pu.plot_denoising_trajectories(unnorm_trajectory, run_step=int(run_step), denoising_step=int(t))
         
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]   
@@ -646,7 +631,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             cond_data[:,:To,Da:] = nobs[:,:To]
             cond_mask[:,:To,Da:] = True
         
-        if int(step) in pu.PLOT_DENOISING_STEPS:
+        if int(step) in pu.DISPLAY_STEPS:
             eff_x, eff_y = nobs[6][2][6], nobs[6][2][7]
             pu.init_denoising_trajectories(obs=obs, run_step=int(step), eff_x=eff_x, eff_y=eff_y)
 

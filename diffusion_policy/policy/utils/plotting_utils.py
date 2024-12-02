@@ -8,10 +8,12 @@ from matplotlib.colors import LinearSegmentedColormap
 global INNER_STEP
 # Default values for run
 # DISPLAY_BATCHES = [6, 7, 8, 9]
-DISPLAY_BATCHES = [6]
+DISPLAY_BATCHES = [6] 
+DISPLAY_STEPS = [1] # which run_steps to plot
+DISPLAY_DENOISING_STEPS = [5, 4, 3, 2, 1, 0] # which denoising steps to plot
 PLOT_REFERENCES = {} # on subsequent calls will hold references to plots per batch per step
 
-PLOT_DENOISING_STEPS = {10}
+PLOT_DENOISING_STEPS = {1}
 
 NUM_BATCHES = 6 + len(DISPLAY_BATCHES)
 INNER_STEP = [0] * NUM_BATCHES
@@ -125,8 +127,8 @@ def plot_targets (obs, batch, ax):
     ax.scatter([target_x, target2_x], [target_y, target2_y], color=['lightgray', 'lightgray'], marker='x', s=100, label='Targets')
 
     # Plot the rectangles using plot_rectangles
-    plot_rectangles(target_x, target_y, orientation=0, color='lightgray', label='Target 1', opacity=0.3, ax=ax)
-    plot_rectangles(target2_x, target2_y, orientation=0, color='lightgray', label='Target 2', opacity=0.3, ax=ax)
+    plot_rectangles(target_x, target_y, orientation=0, color='lightpink', label='Target 1', opacity=0.3, ax=ax)
+    plot_rectangles(target2_x, target2_y, orientation=0, color='lightgreen', label='Target 2', opacity=0.3, ax=ax)
 
 def get_vertical_offset(batch): 
     """
@@ -607,7 +609,22 @@ def plot_target_stats(last_info, batch, ax):
     stats = last_info[batch]
 
     for key, value in stats.items():
-        ax.text(TEXT_X_START, TEXT_Y_START - (get_vertical_offset(batch=batch)), f'{key}: {value}', color='black', fontsize=9, transform=ax.transAxes)
+
+        color = 'black'
+
+        if key == 'REACH_0':
+            color = 'blue'
+        elif key == 'REACH_1':
+            color = 'orange'
+        elif key == 'TARGET_0_0' or key == 'TARGET_1_0':
+            color = 'lightpink'
+        else:
+            color = 'lightgreen'
+
+        ax.text(TEXT_X_START, TEXT_Y_START - (get_vertical_offset(batch=batch)), f'{key}: {value}', color=color, fontsize=9, transform=ax.transAxes)
+
+
+
 
 def close_global_plots(obs, last_info):
 
@@ -648,7 +665,7 @@ def init_denoising_trajectories(obs, run_step, eff_x, eff_y):
     obs = obs.detach().cpu().numpy()
     batch = 6
     # for batch in DISPLAY_BATCHES:
-    for denoising_step in [99, 50, 0]:
+    for denoising_step in DISPLAY_DENOISING_STEPS:
         fig, ax = plt.subplots(figsize=(12, 12))
         ax.set_title(f"Batch {batch} at Run Step {run_step}")
         ax.set_xlim(-0.5, 1.0)
@@ -687,11 +704,9 @@ def close_denoising_trajectories(desired_trajectory, run_step, obs_after, obs_be
     batch = 6 # NOTE: Hard coded
 
 
-    for denoising_step in [99, 50, 0]:
+    for denoising_step in DISPLAY_DENOISING_STEPS:
         plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
         (fig, ax) = PLOT_REFERENCES[plot_key]
-
-        # plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch, ax=ax) # hard to distinguish which was the actual trajectory from this
 
         next_x = obs_after[batch][0][6]
         next_y = obs_after[batch][0][7]
@@ -699,8 +714,8 @@ def close_denoising_trajectories(desired_trajectory, run_step, obs_after, obs_be
         ax.text( 0.05, 1-0.1, f"Next step taken: ({next_x:.4f}, {next_y:.4f})", color='black', fontsize=10, transform=ax.transAxes
         )
 
-        if denoising_step == 0: 
-            print(f"Step: {run_step} Next step taken: ({next_x:.4f}, {next_y:.4f})")
+        # if denoising_step == 0: 
+        #     print(f"Step: {run_step} Next step taken: ({next_x:.4f}, {next_y:.4f})")
         
         plot_isolated_effector(obs=obs_before, batch=batch, ax=ax, alpha = 0.25)
         plot_isolated_effector(obs=obs_after, batch=batch, ax=ax, alpha = 0.5)
@@ -713,6 +728,9 @@ def close_denoising_trajectories(desired_trajectory, run_step, obs_after, obs_be
         plt.close()
 
 def plot_denoising_trajectories(trajectory, run_step, denoising_step):
+    """
+    Plot the generated trajectory at denoising step, denoising_step.
+    """
     trajectory = trajectory.detach().cpu().numpy()
     batch = 6
 
@@ -739,15 +757,9 @@ def plot_denoising_trajectories(trajectory, run_step, denoising_step):
             label=f'Batch {batch+1}' if j == 0 and batch == 0 else "", 
             edgecolor='k'
         )
-    
-        denoising_level = {99: ((0.05, 1-0.05), "start of denoising"), 
-                        50: ((0.05, 1-0.05), "middle of denoising"), 
-                        0: ((0.05, 1-0.05), "end of denoising")}
-
-        (x, y), label = denoising_level[denoising_step]
 
         ax.text(
-            x, y, f"{label}", 
+            TEXT_X_START, TEXT_Y_START, f"Step {denoising_step}", 
             color=gradient_step_color, fontsize=10, transform=ax.transAxes
         )
 
