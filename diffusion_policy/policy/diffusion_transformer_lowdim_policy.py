@@ -13,9 +13,9 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 import numpy as np  # Added import for numpy
 
 import diffusion_policy.policy.utils.plotting_utils as pu
+import keyboard
 
 # Define rotations per batch if needed
-ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [], [], [], []] 
 
 
 class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
@@ -60,17 +60,137 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         self.num_inference_steps = num_inference_steps
     
     # ========= inference  ============
+    # def conditional_sample(self, run_step, 
+    #         condition_data, condition_mask,
+    #         cond=None, generator=None,
+    #         # keyword arguments to scheduler.step
+    #         **kwargs
+    #         ):
+    #     model = self.model
+    #     scheduler = self.noise_scheduler
+
+    #     # Trajectory is of shape (# steps x batch size x coordinates)
+        
+    #     salient_directions = {
+    #         'right': (
+    #             torch.tensor([[1, 0], [1, 0], [2, 0], [3, 0], [4, 0]], 
+    #                         dtype=torch.float32, 
+    #                         device=condition_data.device)
+    #             ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+    #         'up': (
+    #             torch.tensor([[0, 1], [0, 2], [0, 3], [0, 4], [0, 5]], 
+    #                         dtype=torch.float32, 
+    #                         device=condition_data.device)
+    #             ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+    #         'down': (
+    #             torch.tensor([[0, -1], [0, -2], [0, -3], [0, -4], [0, -5]], 
+    #                         dtype=torch.float32, 
+    #                         device=condition_data.device)
+    #             ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+    #         'left': (
+    #             torch.tensor([[-1, 0], [-1, 0], [-2, 0], [-3, 0], [-4, 0]], 
+    #                         dtype=torch.float32, 
+    #                         device=condition_data.device)
+    #             ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+    #     }
+
+
+    #     # Sample from Gaussian Noise
+    #     trajectory = torch.randn(
+    #         size=condition_data.shape, 
+    #         dtype=condition_data.dtype,
+    #         device=condition_data.device,
+    #         generator=generator)
+
+    #     # set step values
+        
+    #     # Override at the beginning starting with salient noise (not sure if this will make as big of a difference. Since what we were originally doing was overriding the trajectory AFTER we used it to condition the model but we can see. )
+        
+    #     if run_step in range(7, 8): 
+    #         scheduler.set_timesteps(5)
+    #         trajectory = salient_directions['left']
+    #         pu.plot_salient_noise(int(run_step), 'left')
+    #     elif run_step in range(20, 21):
+    #         scheduler.set_timesteps(5)
+    #         trajectory = salient_directions['down']
+    #         pu.plot_salient_noise(int(run_step), 'down')
+    #     elif run_step in range(21, 22):
+    #         scheduler.set_timesteps(5)
+    #         trajectory = salient_directions['right']
+    #         pu.plot_salient_noise(int(run_step), 'right')
+    #     else: 
+    #         scheduler.set_timesteps(self.num_inference_steps)
+
+    #     # scheduler.set_timesteps(self.num_inference_steps)
+
+    #     # t counts down 
+    #     for t in scheduler.timesteps:
+            
+    #         # 1. apply conditioning
+    #         trajectory[condition_mask] = condition_data[condition_mask]
+
+    #         # 2. predict model output
+    #         model_output = model(trajectory, t, cond) # the cond is what is being used to condition
+
+    #         # 3. compute previous image: x_t -> x_t-1
+    #         trajectory = scheduler.step(
+    #             model_output, t, trajectory, 
+    #             generator=generator,
+    #             **kwargs
+    #             ).prev_sample
+            
+    #         # NOTE: This plotting pre-conditioning. Should probably also plot post conditioning. 
+
+    #         # Uncomment to plot trajectories as they are denoised
+    #         # if (t.item() in pu.DISPLAY_DENOISING_STEPS) and (int(run_step) in pu.DISPLAY_RUN_STEPS):
+
+    #         #     unnorm_trajectory = self.normalizer['action'].unnormalize(trajectory)
+    #         #     pu.plot_denoising_trajectories(unnorm_trajectory, run_step=int(run_step), denoising_step=int(t))
+        
+    #     # finally make sure conditioning is enforced
+    #     trajectory[condition_mask] = condition_data[condition_mask]   
+
+
+             
+
+    #     return trajectory
     def conditional_sample(self, run_step, 
-            condition_data, condition_mask,
-            cond=None, generator=None,
-            # keyword arguments to scheduler.step
-            **kwargs
-            ):
+        condition_data, condition_mask,
+        cond=None, generator=None,
+        **kwargs):
         model = self.model
         scheduler = self.noise_scheduler
 
         # Trajectory is of shape (# steps x batch size x coordinates)
-        
+        salient_directions = {
+            'right': (
+                torch.tensor([[1, 0], [1, 0], [2, 0], [3, 0], [4, 0]], 
+                            dtype=torch.float32, 
+                            device=condition_data.device)
+                ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+            'up': (
+                torch.tensor([[0, 1], [0, 2], [0, 3], [0, 4], [0, 5]], 
+                            dtype=torch.float32, 
+                            device=condition_data.device)
+                ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+            'down': (
+                torch.tensor([[0, -1], [0, -2], [0, -3], [0, -4], [0, -5]], 
+                            dtype=torch.float32, 
+                            device=condition_data.device)
+                ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+
+            'left': (
+                torch.tensor([[-1, 0], [-1, 0], [-2, 0], [-3, 0], [-4, 0]], 
+                            dtype=torch.float32, 
+                            device=condition_data.device)
+                ).unsqueeze(0).repeat(condition_data.shape[0], 1, 1),
+        }
+
         # Sample from Gaussian Noise
         trajectory = torch.randn(
             size=condition_data.shape, 
@@ -78,40 +198,58 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             device=condition_data.device,
             generator=generator)
 
-        # set step values
+        # Set default timesteps
         scheduler.set_timesteps(self.num_inference_steps)
-        
-        # t counts down 
+
+        # Check for keyboard input at the current step
+        if keyboard.is_pressed('right'):
+            scheduler.set_timesteps(5)
+            trajectory = salient_directions['right']
+            pu.plot_salient_noise(int(run_step), 'right')
+            pu.OVERRIDEN_STEPS.append((run_step, 'right'))
+        elif keyboard.is_pressed('left'):
+            scheduler.set_timesteps(5)
+            trajectory = salient_directions['left']
+            pu.plot_salient_noise(int(run_step), 'left')
+            pu.OVERRIDEN_STEPS.append((run_step, 'left'))
+        elif keyboard.is_pressed('up'):
+            scheduler.set_timesteps(5)
+            trajectory = salient_directions['up']
+            pu.plot_salient_noise(int(run_step), 'up')
+            pu.OVERRIDEN_STEPS.append((run_step, 'up'))
+        elif keyboard.is_pressed('down'):
+            scheduler.set_timesteps(5)
+            trajectory = salient_directions['down']
+            pu.plot_salient_noise(int(run_step), 'down')
+            pu.OVERRIDEN_STEPS.append((run_step, 'down'))
+        else:
+            # If no input, use the default number of inference steps
+            scheduler.set_timesteps(self.num_inference_steps)
+
+        # t counts down
         for t in scheduler.timesteps:
-            
             # 1. apply conditioning
             trajectory[condition_mask] = condition_data[condition_mask]
 
             # 2. predict model output
-            model_output = model(trajectory, t, cond) # the cond is what is being used to condition
+            model_output = model(trajectory, t, cond)
 
             # 3. compute previous image: x_t -> x_t-1
             trajectory = scheduler.step(
                 model_output, t, trajectory, 
                 generator=generator,
                 **kwargs
-                ).prev_sample
+            ).prev_sample
             
-            # NOTE: This plotting pre-conditioning. Should probably also plot post conditioning. 
-
-            if (t.item() in pu.DISPLAY_DENOISING_STEPS) and (int(run_step) in pu.DISPLAY_STEPS):
-
-                unnorm_trajectory = self.normalizer['action'].unnormalize(trajectory)
-                pu.plot_denoising_trajectories(unnorm_trajectory, run_step=int(run_step), denoising_step=int(t))
+            # Uncomment to plot trajectories as they are denoised
+            # if (t.item() in pu.DISPLAY_DENOISING_STEPS) and (int(run_step) in pu.DISPLAY_RUN_STEPS):
+            #     unnorm_trajectory = self.normalizer['action'].unnormalize(trajectory)
+            #     pu.plot_denoising_trajectories(unnorm_trajectory, run_step=int(run_step), denoising_step=int(t))
         
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]   
 
-
-             
-
         return trajectory
-
     # ========= Lies Functions ============
     def rotate_point(self, x, y, deg):
         '''
@@ -218,7 +356,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
     def rotate_if_custom(self, obs_dict, nobs, B):
         for batch in range(B):
             curr_step = obs_dict['step']
-            batch_rotations = ROTATIONS_PER_BATCH[batch]
+            batch_rotations = pu.ROTATIONS_PER_BATCH[batch]
             for step, rotation_angle, rotation_distance in batch_rotations:
                 if curr_step == step:
                     nobs = self.rotate_observed_effector(batch, nobs, rotation_angle, rotation_distance)
@@ -631,9 +769,9 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
             cond_data[:,:To,Da:] = nobs[:,:To]
             cond_mask[:,:To,Da:] = True
         
-        if int(step) in pu.DISPLAY_STEPS:
-            eff_x, eff_y = nobs[6][2][6], nobs[6][2][7]
-            pu.init_denoising_trajectories(obs=obs, run_step=int(step), eff_x=eff_x, eff_y=eff_y)
+        # if int(step) in pu.DISPLAY_RUN_STEPS:
+        #     eff_x, eff_y = nobs[6][2][6], nobs[6][2][7]
+        #     pu.init_denoising_trajectories(obs=obs, run_step=int(step), eff_x=eff_x, eff_y=eff_y)
 
         # Run sampling
         nsample = self.conditional_sample(step, 

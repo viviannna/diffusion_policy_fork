@@ -522,6 +522,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 # Update pbar
                 pbar.update(action.shape[1])
 
+                print("OVERRIDEN STEPS", pu.OVERRIDEN_STEPS)
             
                 # Compute distance traveled by blocks and update rolling lists
                 for batch in range(num_batches):
@@ -530,8 +531,10 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     
                     pu.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_lie_step=last_lie_step)
 
-                    if step in pu.PLOT_DENOISING_STEPS:
-                        pu.close_denoising_trajectories(desired_trajectory=action, run_step=int(step), obs_after=obs, obs_before=obs_before)
+                    # if step in pu.DISPLAY_RUN_STEPS:
+                    #     pu.close_denoising_trajectories(desired_trajectory=action, run_step=int(step), obs_after=obs, obs_before=obs_before)
+
+
 
                     blocks_distance_traveled = pu.TOTAL_BLOCK_DISTANCE_TRAVELED[batch][-1] + pu.TOTAL_BLOCK2_DISTANCE_TRAVELED[batch][-1]
                     blocks_dist[batch].append(blocks_distance_traveled)

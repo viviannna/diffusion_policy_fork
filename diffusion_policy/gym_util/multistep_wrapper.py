@@ -116,7 +116,7 @@ class MultiStepWrapper(gym.Wrapper):
                 done = True
 
             # # Override and shorten 
-            # if (len(self.reward) >= 20):
+            # if (len(self.reward) >= 30):
             #     done = True
 
 

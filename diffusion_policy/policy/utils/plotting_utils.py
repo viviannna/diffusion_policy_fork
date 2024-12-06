@@ -9,11 +9,9 @@ global INNER_STEP
 # Default values for run
 # DISPLAY_BATCHES = [6, 7, 8, 9]
 DISPLAY_BATCHES = [6] 
-DISPLAY_STEPS = [1] # which run_steps to plot
+DISPLAY_RUN_STEPS = [7, 8] # which run_steps to plot
 DISPLAY_DENOISING_STEPS = [5, 4, 3, 2, 1, 0] # which denoising steps to plot
 PLOT_REFERENCES = {} # on subsequent calls will hold references to plots per batch per step
-
-PLOT_DENOISING_STEPS = {1}
 
 NUM_BATCHES = 6 + len(DISPLAY_BATCHES)
 INNER_STEP = [0] * NUM_BATCHES
@@ -44,6 +42,9 @@ for batch in range(NUM_BATCHES):
 # custom_gradient = LinearSegmentedColormap.from_list("multi_gradient", colors, N=n_colors)
 # COLOR_GRADIENT = custom_gradient(np.linspace(0, 1, n_colors))
 
+OVERRIDEN_STEPS = []
+
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [(7, -90, 0.2)], [], [], []] 
 
 NUM_STEPS = 130 # normally defaults to 130
 GLOBAL_STEP_COUNTER = 0 
@@ -682,6 +683,57 @@ def init_denoising_trajectories(obs, run_step, eff_x, eff_y):
         ax.scatter(
             eff_x.item(), eff_y.item(), color='black', marker='o', s=100, label='Effector', alpha=0.5
         )
+
+def plot_salient_noise(run_step, salient_vector):
+    batch = 6
+    for denoising_step in DISPLAY_DENOISING_STEPS:
+
+        
+        # denoising step plot
+        d_fig = None
+        d_ax = None
+        # if run_step in DISPLAY_RUN_STEPS:
+            # (d_fig, d_ax) = PLOT_REFERENCES[f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"]
+
+        # trajectory plot -- this one is done for all steps anyways
+        (t_fig, t_ax) = PLOT_REFERENCES[f"batch_{batch}_step_{run_step}"]
+
+        # Common arrow base position in the bottom-right corner
+        base_x, base_y = 0.9, -0.9  # Adjusted for the bottom-right corner
+
+        # Define arrow directions based on the salient vector
+        arrow_directions = {
+            'up': (base_x, base_y, base_x, base_y + 0.2),  # Upward
+            'down': (base_x, base_y + 0.2, base_x, base_y),  # Downward
+            'left': (base_x, base_y, base_x - 0.2, base_y),  # Leftward
+            'right': (base_x - 0.2, base_y, base_x, base_y),  # Rightward
+        }
+
+        if salient_vector in arrow_directions:
+            # Unpack the start and end coordinates for the arrow
+            x_start, y_start, x_end, y_end = arrow_directions[salient_vector]
+            arrow_props = dict(facecolor='black', shrink=0.05, width=1, headwidth=10)
+
+            # Add arrow to denoising step plot
+            if d_ax is not None:
+                d_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
+                            xycoords='data', arrowprops=arrow_props)
+
+            # Add arrow to global plot
+          
+            # Add arrow to trajectory plot
+            t_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
+                          xycoords='data', arrowprops=arrow_props)
+
+            # Update the figures to reflect the changes
+            if d_fig is not None:
+                d_fig.canvas.draw()
+            t_fig.canvas.draw()
+    
+
+
+
+
 
 
 def plot_arrow_between_trajectory(desired_trajectory, batch, ax):
