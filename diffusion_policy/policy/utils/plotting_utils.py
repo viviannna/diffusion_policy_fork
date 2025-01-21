@@ -8,12 +8,16 @@ from matplotlib.colors import LinearSegmentedColormap
 global INNER_STEP
 # Default values for run
 # DISPLAY_BATCHES = [6, 7, 8, 9]
-DISPLAY_BATCHES = [6] 
-DISPLAY_RUN_STEPS = [7, 8] # which run_steps to plot
-DISPLAY_DENOISING_STEPS = [5, 4, 3, 2, 1, 0] # which denoising steps to plot
+DISPLAY_BATCHES = [7] 
+
+DISPLAY_RUN_STEPS = [8] # which run_steps to plot
+SPECIAL_DENOISING_STEPS = 25 # how many denoising steps to take at each DISPLAY_RUN_STEPS (really only works if you want the same amount of denoising for each override). useful for arbitrarily plotting the first and last 2 denoising steps.
+DISPLAY_DENOISING_STEPS = [] # which denoising steps to plot (should be variably set in policy)
 PLOT_REFERENCES = {} # on subsequent calls will hold references to plots per batch per step
 
-NUM_BATCHES = 6 + len(DISPLAY_BATCHES)
+NUM_TESTING_BATCHES = 4 # 6, 7, 8, 9
+
+NUM_BATCHES = 6 + NUM_TESTING_BATCHES
 INNER_STEP = [0] * NUM_BATCHES
 TEXT_X_START, TEXT_Y_START = 0.05, 0.95 # Starting coordinates for text on plot
 
@@ -44,9 +48,19 @@ for batch in range(NUM_BATCHES):
 
 OVERRIDEN_STEPS = []
 
-ROTATIONS_PER_BATCH = [[], [], [], [], [], [], [(7, -90, 0.2)], [], [], []] 
+# For custom, define which rotations to do per batch. Of form (step, degree, )
 
-NUM_STEPS = 130 # normally defaults to 130
+# Rotate Lie about the effector by (deg=0, dist=0.1) at each step on the past 1 observation. (Right) 
+
+# For each step, rotate the effector by (deg=0, dist=0.1) at each step on the past 1 observation. (Right)
+
+rotate_at_each_step = []
+for i in range(3, 170, 1): 
+    rotate_at_each_step.append((i, 180, 0.1))
+
+ROTATIONS_PER_BATCH = [[], [], [], [], [], [], rotate_at_each_step, [], [], []] 
+
+NUM_STEPS = 100 # normally defaults to 130
 GLOBAL_STEP_COUNTER = 0 
 # Get the "rainbow" colormap
 if GLOBAL_STEP_COUNTER <= 130: 
@@ -135,9 +149,10 @@ def get_vertical_offset(batch):
     """
     Calculates the vertical offset of the text by incrementing every time something is added to each plot per batch. 
     """
-
-    INNER_STEP[batch] += 1 
-    return 0.025 * INNER_STEP[batch]
+    if batch in DISPLAY_BATCHES:
+        INNER_STEP[batch] += 1 
+        return 0.025 * INNER_STEP[batch]  
+    return 0.025  
 
 def get_distance_between(x1, y1, x2, y2):
     """
@@ -176,7 +191,7 @@ def plot_blocks(obs_before, obs_after, batch, ax, plot=True):
             'orientation': obs_after[batch][obs_step][5]
         }
 
-        if plot: 
+        if plot and batch in DISPLAY_BATCHES: 
 
             # Plot blocks before
             plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'blue', 'Block Before', opacity=0.5, is_block=True, ax=ax)
@@ -664,72 +679,72 @@ def init_denoising_trajectories(obs, run_step, eff_x, eff_y):
     We're going to plot all the trajectories being generated through the denoising process within a given run step. 
     """
     obs = obs.detach().cpu().numpy()
-    batch = 6
-    # for batch in DISPLAY_BATCHES:
-    for denoising_step in DISPLAY_DENOISING_STEPS:
-        fig, ax = plt.subplots(figsize=(12, 12))
-        ax.set_title(f"Batch {batch} at Run Step {run_step}")
-        ax.set_xlim(-0.5, 1.0)
-        ax.set_ylim(-1.0, 0.5)
-        ax.set_xlabel("X-axis Label")
-        ax.set_ylabel("Y-axis Label")
+    for batch in DISPLAY_BATCHES:
+        for denoising_step in DISPLAY_DENOISING_STEPS:
+            fig, ax = plt.subplots(figsize=(12, 12))
+            ax.set_title(f"Batch {batch} at Run Step {run_step}, Denoising Step {denoising_step}")
+            ax.set_xlim(-0.5, 1.0)
+            ax.set_ylim(-1.0, 0.5)
+            ax.set_xlabel("X-axis Label")
+            ax.set_ylabel("Y-axis Label")
 
-        plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
-        PLOT_REFERENCES[plot_key] = (fig, ax)
+            plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
+            PLOT_REFERENCES[plot_key] = (fig, ax)
 
-        plot_isolated_blocks(batch=batch, obs_before=obs, ax=ax, obs_step=2)
-        plot_targets(obs=obs, batch=batch, ax=ax)
+            plot_isolated_blocks(batch=batch, obs_before=obs, ax=ax, obs_step=2)
+            plot_targets(obs=obs, batch=batch, ax=ax)
 
-        ax.scatter(
-            eff_x.item(), eff_y.item(), color='black', marker='o', s=100, label='Effector', alpha=0.5
-        )
+            ax.scatter(
+                eff_x.item(), eff_y.item(), color='black', marker='o', s=100, label='Effector', alpha=0.5
+            )
 
 def plot_salient_noise(run_step, salient_vector):
-    batch = 6
-    for denoising_step in DISPLAY_DENOISING_STEPS:
+    # batch = 6
+    for batch in DISPLAY_BATCHES:
+        for denoising_step in DISPLAY_DENOISING_STEPS:
 
-        
-        # denoising step plot
-        d_fig = None
-        d_ax = None
-        # if run_step in DISPLAY_RUN_STEPS:
-            # (d_fig, d_ax) = PLOT_REFERENCES[f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"]
+            
+            # denoising step plot
+            d_fig = None
+            d_ax = None
+            # if run_step in DISPLAY_RUN_STEPS:
+                # (d_fig, d_ax) = PLOT_REFERENCES[f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"]
 
-        # trajectory plot -- this one is done for all steps anyways
-        (t_fig, t_ax) = PLOT_REFERENCES[f"batch_{batch}_step_{run_step}"]
+            # trajectory plot -- this one is done for all steps anyways
+            (t_fig, t_ax) = PLOT_REFERENCES[f"batch_{batch}_step_{run_step}"]
 
-        # Common arrow base position in the bottom-right corner
-        base_x, base_y = 0.9, -0.9  # Adjusted for the bottom-right corner
+            # Common arrow base position in the bottom-right corner
+            base_x, base_y = 0.9, -0.9  # Adjusted for the bottom-right corner
 
-        # Define arrow directions based on the salient vector
-        arrow_directions = {
-            'up': (base_x, base_y, base_x, base_y + 0.2),  # Upward
-            'down': (base_x, base_y + 0.2, base_x, base_y),  # Downward
-            'left': (base_x, base_y, base_x - 0.2, base_y),  # Leftward
-            'right': (base_x - 0.2, base_y, base_x, base_y),  # Rightward
-        }
+            # Define arrow directions based on the salient vector
+            arrow_directions = {
+                'up': (base_x, base_y, base_x, base_y + 0.2),  # Upward
+                'down': (base_x, base_y + 0.2, base_x, base_y),  # Downward
+                'left': (base_x, base_y, base_x - 0.2, base_y),  # Leftward
+                'right': (base_x - 0.2, base_y, base_x, base_y),  # Rightward
+            }
 
-        if salient_vector in arrow_directions:
-            # Unpack the start and end coordinates for the arrow
-            x_start, y_start, x_end, y_end = arrow_directions[salient_vector]
-            arrow_props = dict(facecolor='black', shrink=0.05, width=1, headwidth=10)
+            if salient_vector in arrow_directions:
+                # Unpack the start and end coordinates for the arrow
+                x_start, y_start, x_end, y_end = arrow_directions[salient_vector]
+                arrow_props = dict(facecolor='black', shrink=0.05, width=1, headwidth=10)
 
-            # Add arrow to denoising step plot
-            if d_ax is not None:
-                d_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
+                # Add arrow to denoising step plot
+                if d_ax is not None:
+                    d_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
+                                xycoords='data', arrowprops=arrow_props)
+
+                # Add arrow to global plot
+            
+                # Add arrow to trajectory plot
+                t_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
                             xycoords='data', arrowprops=arrow_props)
 
-            # Add arrow to global plot
-          
-            # Add arrow to trajectory plot
-            t_ax.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start),
-                          xycoords='data', arrowprops=arrow_props)
-
-            # Update the figures to reflect the changes
-            if d_fig is not None:
-                d_fig.canvas.draw()
-            t_fig.canvas.draw()
-    
+                # Update the figures to reflect the changes
+                if d_fig is not None:
+                    d_fig.canvas.draw()
+                t_fig.canvas.draw()
+        
 
 
 
@@ -753,65 +768,69 @@ def plot_arrow_between_trajectory(desired_trajectory, batch, ax):
         )
 
 def close_denoising_trajectories(desired_trajectory, run_step, obs_after, obs_before):
-    batch = 6 # NOTE: Hard coded
+    # batch = 7 # NOTE: Hard coded
+
+    for batch in DISPLAY_BATCHES:
 
 
-    for denoising_step in DISPLAY_DENOISING_STEPS:
-        plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
-        (fig, ax) = PLOT_REFERENCES[plot_key]
+        for denoising_step in DISPLAY_DENOISING_STEPS:
+            plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
+            (fig, ax) = PLOT_REFERENCES[plot_key]
 
-        next_x = obs_after[batch][0][6]
-        next_y = obs_after[batch][0][7]
-    
-        ax.text( 0.05, 1-0.1, f"Next step taken: ({next_x:.4f}, {next_y:.4f})", color='black', fontsize=10, transform=ax.transAxes
-        )
-
-        # if denoising_step == 0: 
-        #     print(f"Step: {run_step} Next step taken: ({next_x:.4f}, {next_y:.4f})")
+            next_x = obs_after[batch][0][6]
+            next_y = obs_after[batch][0][7]
         
-        plot_isolated_effector(obs=obs_before, batch=batch, ax=ax, alpha = 0.25)
-        plot_isolated_effector(obs=obs_after, batch=batch, ax=ax, alpha = 0.5)
+            ax.text( 0.05, 1-0.1, f"Next step taken: ({next_x:.4f}, {next_y:.4f})", color='black', fontsize=10, transform=ax.transAxes
+            )
+
+            # if denoising_step == 0: 
+            #     print(f"Step: {run_step} Next step taken: ({next_x:.4f}, {next_y:.4f})")
+            
+            plot_isolated_effector(obs=obs_before, batch=batch, ax=ax, alpha = 0.25)
+            plot_isolated_effector(obs=obs_after, batch=batch, ax=ax, alpha = 0.5)
 
 
-        # ax.scatter(x, y, color='black', marker='o', s=100, label='Next Step')
+            # ax.scatter(x, y, color='black', marker='o', s=100, label='Next Step')
 
-        # plot_arrow_between_trajectory(desired_trajectory, batch, ax)
-        fig.savefig(f"denoising_plots/batch_{batch}/run_step_{run_step}_denoising_{denoising_step}.png", bbox_inches='tight')
-        plt.close()
+            # plot_arrow_between_trajectory(desired_trajectory, batch, ax)
+            fig.savefig(f"denoising_plots/batch_{batch}/run_step_{run_step}_denoising_{denoising_step}.png", bbox_inches='tight')
+            plt.close()
 
 def plot_denoising_trajectories(trajectory, run_step, denoising_step):
     """
     Plot the generated trajectory at denoising step, denoising_step.
     """
     trajectory = trajectory.detach().cpu().numpy()
-    batch = 6
-
     
-    (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"]
 
-    action_horizon = trajectory.shape[1]
-    x_coords = trajectory[batch, :, 0]
-    y_coords = trajectory[batch, :, 1]
+    for batch in DISPLAY_BATCHES:
 
-    # Zip x and y coordinates to form trajectory coordinates
-    # trajectory_coords = list(zip(x_coords, y_coords))
-    
-    gradient_step_color = COLOR_GRADIENT[denoising_step]
-    gradient = [0.2, 0.4, 0.6, 0.8, 1.0]
-    # gradient = np.linspace(0.2, 1, 5)  # Adjust alpha values for darker to lighter
-    colors = [to_rgba(gradient_step_color, alpha) for alpha in gradient]
+        
+        (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"]
 
-    # TODO: Might also be useful to plot the location of the effector but normed so we can see it in 
+        action_horizon = trajectory.shape[1]
+        x_coords = trajectory[batch, :, 0]
+        y_coords = trajectory[batch, :, 1]
 
-    for j in range(action_horizon):
-        ax.scatter(
-            x_coords[j], y_coords[j], color=colors[j], 
-            label=f'Batch {batch+1}' if j == 0 and batch == 0 else "", 
-            edgecolor='k'
-        )
+        # Zip x and y coordinates to form trajectory coordinates
+        # trajectory_coords = list(zip(x_coords, y_coords))
+        
+        gradient_step_color = COLOR_GRADIENT[denoising_step]
+        gradient = [0.2, 0.4, 0.6, 0.8, 1.0]
+        # gradient = np.linspace(0.2, 1, 5)  # Adjust alpha values for darker to lighter
+        colors = [to_rgba(gradient_step_color, alpha) for alpha in gradient]
+
+        # TODO: Might also be useful to plot the location of the effector but normed so we can see it in 
+
+        for j in range(action_horizon):
+            ax.scatter(
+                x_coords[j], y_coords[j], color=colors[j], 
+                label=f'Batch {batch+1}' if j == 0 and batch == 0 else "", 
+                edgecolor='k'
+            )
 
         ax.text(
-            TEXT_X_START, TEXT_Y_START, f"Step {denoising_step}", 
+            TEXT_X_START, TEXT_Y_START, f"Denoising Step {denoising_step}", 
             color=gradient_step_color, fontsize=10, transform=ax.transAxes
         )
 

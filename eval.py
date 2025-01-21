@@ -20,7 +20,7 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
 global DISPLAY_BATCHES
 # DISPLAY_BATCHES = [6, 7, 8, 9]
-DISPLAY_BATCHES = [6]
+DISPLAY_BATCHES = [7]
 
 @click.command()
 @click.option('-c', '--checkpoint', required=True)
@@ -63,9 +63,6 @@ def main(checkpoint, output_dir, device, n_test=None, test_start_seed=None):
 
             diffusion_directory = f'denoising_plots/batch_{batch_dir}'
             os.makedirs(diffusion_directory)  # Recreate the directory
-
-
-
 
         # delete data/block_pushing_multimodal/eval and then make new
         if os.path.exists('data/blockpush_eval_output/media'):

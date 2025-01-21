@@ -442,7 +442,7 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                     'step': np.array([step], dtype=np.float32),  # Step should be a 1D array for consistency
                     
                     # Condition lie is based on -- (1) cummulative distance traveled by blocks in past 5 steps (2) cummulative distance traveled by effector in past 5 steps
-                    'lie_cond': np.array(int(lie_conds['custom']), dtype=np.float32),
+                    'lie_cond': np.array(int(lie_conds['effector_dist_5']), dtype=np.float32),
                     'last_lie_step': np.array(last_lie_step), 
                     
                     # Rotate the observed effector positions
@@ -522,17 +522,16 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 # Update pbar
                 pbar.update(action.shape[1])
 
-                print("OVERRIDEN STEPS", pu.OVERRIDEN_STEPS)
+                # print("OVERRIDEN STEPS", pu.OVERRIDEN_STEPS)
             
                 # Compute distance traveled by blocks and update rolling lists
                 for batch in range(num_batches):
                     pu.plot_steps_taken(obs_after=obs, batch=batch)
-
                     
                     pu.plot_env_after_step(step=step, desired_trajectory=action, obs_before=obs_before, obs_after=obs, batch=batch, last_lie_step=last_lie_step)
 
-                    # if step in pu.DISPLAY_RUN_STEPS:
-                    #     pu.close_denoising_trajectories(desired_trajectory=action, run_step=int(step), obs_after=obs, obs_before=obs_before)
+                    if step in pu.DISPLAY_RUN_STEPS:
+                        pu.close_denoising_trajectories(desired_trajectory=action, run_step=int(step), obs_after=obs, obs_before=obs_before)
 
 
 
