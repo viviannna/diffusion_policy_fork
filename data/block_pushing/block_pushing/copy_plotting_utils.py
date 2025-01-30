@@ -50,6 +50,15 @@ for batch in range(NUM_BATCHES):
 
 OVERRIDEN_STEPS = []
 
+
+NUM_PLOTS = 0
+VERTICAL_OFFSETS = [0] * NUM_PLOTS
+
+def initialize_global_plotting(num_plots=None):
+    if num_plots is not None:
+        NUM_PLOTS = num_plots
+
+
 # For custom, define which rotations to do per batch. Of form (step, degree, )
 
 # Rotate Lie about the effector by (deg=0, dist=0.1) at each step on the past 1 observation. (Right) 
@@ -149,14 +158,17 @@ def plot_targets (obs, ax):
     plot_rectangles(target_x, target_y, orientation=0, color='lightpink', label='Target 1', opacity=0.3, ax=ax)
     plot_rectangles(target2_x, target2_y, orientation=0, color='lightgreen', label='Target 2', opacity=0.3, ax=ax)
 
-def get_vertical_offset(batch): 
-    """
-    Calculates the vertical offset of the text by incrementing every time something is added to each plot per batch. 
-    """
-    if batch in DISPLAY_BATCHES:
-        INNER_STEP[batch] += 1 
-        return 0.025 * INNER_STEP[batch]  
-    return 0.025  
+
+# def get_vertical_offset(plot_num): 
+#     """
+#     Calculates the vertical offset of the text by incrementing every time something is added to each plot per batch. 
+#     """
+
+#     INNER_STEP[plot_num]
+#     if batch in DISPLAY_BATCHES:
+#         INNER_STEP[batch] += 1 
+#         return 0.025 * INNER_STEP[batch]  
+#     return 0.025  
 
 def get_distance_between(x1, y1, x2, y2):
     """
@@ -344,7 +356,7 @@ def plot_distance_from_target(batch, obs_after, ax):
     Calculate the distance between each of the blocks and each of the targets and plot them on the plot.
     """
 
-    block_to_target, block_to_target2, block2_to_target, block2_to_target2 = get_blocks_to_target_distance(obs_after=obs_after, batch=batch)
+    block_to_target, block_to_target2, block2_to_target, block2_to_target2 = get_blocks_to_target_distance(obs_after=obs_after)
 
     #NOTE: Not sure why I was appending block_to_target on this?? I think I was trying to append this to TOTAL_BLOCK_TO_TARGET_DISTANCE
     # TOTAL_BLOCK_DISTANCE_TRAVELED[batch].append(block_to_target)
@@ -516,7 +528,7 @@ def plot_coordinate(x,y, batch, curr_step):
     ax.scatter(x, y, color='black', marker='o', s=100, label='Coordinate')
 
 
-def plot_isolated_blocks(obs_before, ax):
+def plot_isolated_blocks(obs_before, ax, label_position=False):
     """
     Only plot the block location, no need to track across time.
     """
@@ -536,6 +548,11 @@ def plot_isolated_blocks(obs_before, ax):
 
     plot_rectangles(block_before['x'], block_before['y'], block_before['orientation'], 'blue', 'Block Before', opacity=1, is_block=True, ax=ax)
     plot_rectangles(block2_before['x'], block2_before['y'], block2_before['orientation'], 'orange', 'Block2 Before', opacity=1, is_block=True, ax=ax)
+
+    if label_position: 
+        # Print the values onto the plot
+        ax.text(TEXT_X_START, TEXT_Y_START-0.175, f'Block 1 Position: ({block_before["x"]:.4f}, {block_before["y"]:.4f})', color='black', fontsize=9, transform=ax.transAxes)
+        ax.text(TEXT_X_START, TEXT_Y_START-0.2, f'Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='black', fontsize=9, transform=ax.transAxes)
 
 def plot_isolated_effector(obs, batch, ax, obs_step=0, alpha=0.1):
     
@@ -610,20 +627,11 @@ def plot_target_stats(last_info, batch, ax):
         ax.text(TEXT_X_START, TEXT_Y_START - (get_vertical_offset(batch=batch)), f'{key}: {value}', color=color, fontsize=9, transform=ax.transAxes)
 
 
-
-def plot_labels(ax):
-
-
-    # Color code 3 segments
-    # Blue is first block to target
-    # Yellow is return to center
-    # Green is pivot point
-    # Red is second block to target
-
-    # ax.text(TEXT_X_START, TEXT_Y_START, 'Blue: First block to traget', color='blue', fontsize=9, transform=ax.transAxes)
-    # ax.text(TEXT_X_START, TEXT_Y_START - 0.025, 'Yellow: Return to center', color='yellow', fontsize=9, transform=ax.transAxes)
-    # ax.text(TEXT_X_START, TEXT_Y_START - 0.05, 'Green: Pivot Point', color='green', fontsize=9, transform=ax.transAxes)
-    # ax.text(TEXT_X_START, TEXT_Y_START - 0.075, 'Red: Second block to target', color='red', fontsize=9, transform=ax.transAxes)
+def color_code_at_k_labels(demo_num):
+    """
+    Color code the labels at k. 
+    """
+    (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
 
     # Color Code at k 
     ax.text(TEXT_X_START, TEXT_Y_START, 'Cyan: Time Step k', color='cyan', fontsize=9, transform=ax.transAxes)
@@ -631,18 +639,52 @@ def plot_labels(ax):
     ax.text(TEXT_X_START, TEXT_Y_START - 0.05, 'Path 0: Red -> Orange', color='red', fontsize=9, transform=ax.transAxes)
     ax.text(TEXT_X_START, TEXT_Y_START - 0.075, 'Path 1: Blue -> Purple', color='blue', fontsize=9, transform=ax.transAxes)
 
-    ax.text(TEXT_X_START, TEXT_Y_START - 0.1, 'path1_before_k, path0_after_k, path0_before_k, path1_after_k ', color='black', fontsize=9, transform=ax.transAxes)
+    # ax.text(TEXT_X_START, TEXT_Y_START - 0.1, 'path1_before_k, path0_after_k, path0_before_k, path1_after_k ', color='black', fontsize=9, transform=ax.transAxes)
 
-    ax.text(TEXT_X_START, TEXT_Y_START - .125, 'i.e. should correspond to blue -> orange -> red -> purple on the original graph', color='black', fontsize=9, transform=ax.transAxes)
+    # ax.text(TEXT_X_START, TEXT_Y_START - .125, 'i.e. should correspond to blue -> orange -> red -> purple on the original graph', color='black', fontsize=9, transform=ax.transAxes)
+
+    
+def color_code_3_segments_labels(demo_num):
+    """
+    Color code the labels for the 3 segments. 
+    """
+    (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
+
+    # Color code 3 segments
+    # Blue is first block to target
+    # Yellow is return to center
+    # Green is pivot point
+    # Red is second block to target
+
+    ax.text(TEXT_X_START, TEXT_Y_START, 'Red: First block to traget', color='red', fontsize=9, transform=ax.transAxes)
+    ax.text(TEXT_X_START, TEXT_Y_START - 0.025, 'Yellow: Return to center', color='yellow', fontsize=9, transform=ax.transAxes)
+    ax.text(TEXT_X_START, TEXT_Y_START - 0.05, 'Green: Pivot Point', color='green', fontsize=9, transform=ax.transAxes)
+    ax.text(TEXT_X_START, TEXT_Y_START - 0.075, 'Blue: Second block to target', color='blue', fontsize=9, transform=ax.transAxes)
+
+
+
+    
+
     
 
 
-def close_global_plots(obs, demo_num):
+def plot_dist_to_target_demo(target_num, current_num, dist):
+    
+    (fig, ax) = PLOT_REFERENCES[f"demo_num_{current_num}"]
 
+    ax.text(TEXT_X_START, TEXT_Y_START - .150, f"Distance to Target Num ({target_num}): {dist:.4f}", color='black', fontsize=9, transform=ax.transAxes)
+    
+
+
+def close_global_plots(obs, demo_num, coloring):
     
     (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
-    plot_isolated_blocks(obs_before=obs, ax=ax)
-    plot_labels(ax)
+    plot_isolated_blocks(obs_before=obs, ax=ax, label_position=False)
+    # plot_labels(ax)
+    if coloring == "3_segments":
+        color_code_3_segments_labels(demo_num)
+    elif coloring == "at_k":
+        color_code_at_k_labels(demo_num)
     # plot_target_stats(last_info=last_info, batch=batch, ax=ax)
     fig.savefig(f"global_plots/demo_num_{demo_num}.png", bbox_inches='tight')
     plt.close()
@@ -660,8 +702,19 @@ def init_global_plots(obs_before, demo_num):
     plot_key = f"demo_num_{demo_num}"
     PLOT_REFERENCES[plot_key] = (fig, ax)
 
-    plot_isolated_blocks(obs_before=obs_before, ax=ax)
+    plot_isolated_blocks(obs_before=obs_before, ax=ax, label_position=True)
     plot_targets(obs=obs_before, ax=ax)
+
+    return fig, ax
+
+def add_text_to_plot(demo_num, text):
+
+    # Add custom text to the plot 
+
+    (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
+
+    for line in text: 
+        ax.text(TEXT_X_START, TEXT_Y_START - .150, line, color='black', fontsize=9)
 
        
 def init_denoising_trajectories(obs, run_step, eff_x, eff_y): 
