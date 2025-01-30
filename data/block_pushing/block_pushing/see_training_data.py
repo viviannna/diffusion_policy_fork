@@ -11,6 +11,8 @@ from scipy.optimize import linear_sum_assignment
 import numpy as np
 
 global EPISODE_ENDS 
+
+# 1,000 demonstrations (root['meta']['episode_ends'])
 EPISODE_ENDS = [0,   104,    227,    352,    461,    587,    695,    816,    917,
          1023,   1131,   1253,   1379,   1479,   1599,   1702,   1819,
          1940,   2056,   2164,   2262,   2394,   2515,   2633,   2735,
@@ -139,10 +141,69 @@ EPISODE_ENDS = [0,   104,    227,    352,    461,    587,    695,    816,    917
 
 
 
+import numpy as np
+import os
+import shutil
+
+# We assume 'pu' is some external plotting utility you've written (not shown here).
+# from your_plotting_utils import pu
+
+def reorder_observations_first_n(labels, obs, actions, n=470):
+    """
+    Utility function to reorder the first n timesteps according to a label map
+    and then concatenate the remainder. 
+    This is intentionally separate from the PathSegmenter class.
+    """
+    # 1) Slice out the first n items
+    labels_sub  = labels[:n]
+    obs_sub     = obs[:n]
+    actions_sub = actions[:n]
+
+    # The remainder that stays untouched
+    labels_rest  = labels[n:]
+    obs_rest     = obs[n:]
+    actions_rest = actions[n:]
+
+    # 2) Define label priorities
+    order_map = {
+        "path1_before_k":  0,
+        "path0_after_k":   1,
+        "path0_before_k":  2,
+        "path1_after_k":   3,
+    }
+    LOWEST_PRIORITY = 999
+
+    def get_sort_key(label):
+        # Unknown labels => 999, so they end up at the back (but preserve relative order).
+        return order_map.get(label, LOWEST_PRIORITY)
+
+    # 3) Zip the sub-block so we can sort them together.
+    zipped_sub = list(zip(labels_sub, obs_sub, actions_sub))
+    # Sort by label priority
+    zipped_sub_sorted = sorted(zipped_sub, key=lambda x: get_sort_key(x[0]))
+    # Unzip back into separate sequences
+    labels_sub_sorted, obs_sub_sorted, actions_sub_sorted = zip(*zipped_sub_sorted)
+
+    # 4) Convert obs_sub_sorted / actions_sub_sorted to NumPy arrays if needed
+    obs_sub_sorted     = np.array(obs_sub_sorted)
+    actions_sub_sorted = np.array(actions_sub_sorted)
+
+    # 5) Concatenate sorted sub-block with remainder along axis=0
+    obs_concat     = np.concatenate([obs_sub_sorted, obs_rest], axis=0)
+    actions_concat = np.concatenate([actions_sub_sorted, actions_rest], axis=0)
+
+    # 6) Convert them back to lists or keep them as arrays
+    new_labels  = list(labels_sub_sorted) + labels_rest
+    new_obs     = obs_concat.tolist()
+    new_actions = actions_concat.tolist()
+
+    return new_labels, new_obs, new_actions
+
+
 class PathSegmenter:
     def __init__(self, zarr_obs, zarr_action, start_timestep, end_timestep, demo_num):
         """
-        Initialize the PathSegmenter with required data and parameters.
+        Initialize with required data and parameters.
         """
         self.zarr_obs = zarr_obs
         self.zarr_action = zarr_action
@@ -150,300 +211,223 @@ class PathSegmenter:
         self.end_timestep = end_timestep
         self.demo_num = demo_num
 
+        # These values will be set by calculate_pivot_points()
         self.no_blocks = None
         self.one_block = None
         self.pivot_point = None
         self.both_blocks = None
 
+        # If you have a special "switch step" concept
+        self.switch_step_k = None
+
+        # This will be populated by label_segments_from_k()
         self.labels = None
 
-    def get_pivot_points(self):
+        # (Optional) Store the initial observation for convenience
+        self.start_obs = None
+
+    def calculate_pivot_points(self):
         """
-        Pass through the entire demonstration and get key timesteps -- pivot point for the two paths, the two paths at step k. 
+        Single pass through the demonstration to identify pivotal timesteps.
+        - no_blocks: first time we see neither block in the target
+        - one_block: first time we see exactly one block in target
+        - both_blocks: first time we see both in target
+        - pivot_point: midpoint between one_block and both_blocks
         """
+        # You may want to store this for plotting
+        self.start_obs = self.zarr_obs[self.start_timestep]
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_obs = self.zarr_obs[step]
             curr_action = self.zarr_action[step]
 
             done, b0_in_target, b1_in_target = pu.is_successful(curr_obs)
-
+            
             if not b0_in_target and not b1_in_target:
-                assert not done
-
+                # We found the first time no blocks are in the target
                 if self.no_blocks is None:
                     self.no_blocks = step
-
             elif b0_in_target != b1_in_target:
+                # Exactly one block in target
                 if self.one_block is None:
                     self.one_block = step
-
             else:
+                # Both blocks in target
                 if self.both_blocks is None:
                     self.both_blocks = step
 
-        assert self.no_blocks is not None and self.one_block is not None and self.both_blocks is not None
+        if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks]):
+            raise ValueError("Could not determine pivot points correctly.")
 
+        # Midpoint
         self.pivot_point = self.one_block + ((self.both_blocks - self.one_block) // 2)
-        print(f"no_blocks: {self.no_blocks}, one_block: {self.one_block}, "
-              f"pivot_point: {self.pivot_point}, both_blocks: {self.both_blocks}")
-        
 
-    def label_segments_from_k(self):
+        print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
+              f"one_block={self.one_block}, pivot={self.pivot_point}, "
+              f"both_blocks={self.both_blocks}")
+
+    def label_segments_from_k(self, switch_step_k):
         """
-        Given a step, return the label (path_pivot, path0_before_k, path0_at_k path0_after_k, path1_before_k, path1_at_k, path1_after_k)
+        Label each timestep between start_timestep and end_timestep as belonging to
+        one of the 'path0' or 'path1' segments, specifically marking whether
+        it comes before/at/after the switch_step_k.
 
-        Asusmes that the pivot point and the switch step k have been found. (get_pivot_points)
-
+        This stores all labels in self.labels.
         """
+        self.switch_step_k = switch_step_k
 
-        assert self.no_blocks is not None and self.one_block is not None and self.both_blocks is not None and self.pivot_point is not None
+        if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
+            raise RuntimeError("Pivot points have not been calculated yet. "
+                               "Call calculate_pivot_points() first.")
 
-        assert self.switch_step_k is not None
-
-
+        # Create a label array for the entire dataset length. We'll fill only the relevant range.
         self.labels = [''] * len(self.zarr_obs)
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-
-            curr_obs = self.zarr_obs[step]
-            curr_action = self.zarr_action[step]
-
-
-            if self.no_blocks <= step and step <= (self.switch_step_k + self.start_timestep):
+            if self.no_blocks <= step <= (self.switch_step_k + self.start_timestep):
                 self.labels[step] = 'path0_before_k'
-            elif (self.switch_step_k + self.start_timestep) < step and step <= self.pivot_point:
+            elif (self.switch_step_k + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'path0_after_k'
-            elif (self.pivot_point < step) and (step <= (self.pivot_point + self.switch_step_k)):
+            elif self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
                 self.labels[step] = 'path1_before_k'
-            elif (self.pivot_point + self.switch_step_k) < step and step <= self.end_timestep:
+            elif (self.pivot_point + self.switch_step_k) < step <= self.end_timestep:
                 self.labels[step] = 'path1_after_k'
             else:
-                assert False, "Step is out of documented range."
+                pass  # If there's some gap or off-by-one, handle or assert as needed.
 
-        print("End!")
+        return self.labels
 
-    def reorder_around_k(self):
-
-        order_map = {
-            "path1_before_k": 0,
-            "path0_after_k":  1,
-            "path0_before_k": 2,
-            "path1_after_k":  3
-        }
-
-        # # Define a function that returns the sort priority for a given index
-        # def get_sort_key(i):
-        #     label = self.labels[i]
-        #     #  if label not in order map, just push to the end but keep same relative order
-        #     return order_map.get(label, 999)
-    
-        # sorted_indices = sorted(range(len(self.labels)), key=get_sort_key)
-
-        # # Reindex all your lists
-        # self.labels = [self.labels[i] for i in sorted_indices]
-        # self.zarr_obs = [self.zarr_obs[i] for i in sorted_indices]
-        # self.zarr_action = [self.zarr_action[i] for i in sorted_indices]
-
-
-        # CHEAT -- at least for the first 4 demos, don't need to reorder everything just the first 470 steps. Should save time. 
-
-        import numpy as np
-
-    def reorder_first_470(self):
-
-        # Number of steps to reorder
-        N = 470
-
-        # 1) Slice out the first N items
-        labels_sub  = self.labels[:N]         # these are the labels to reorder
-        obs_sub     = self.zarr_obs[:N]       # shape (N, dim_obs)
-        actions_sub = self.zarr_action[:N]    # shape (N, dim_action)
-
-        # The remainder that stays untouched
-        labels_rest  = self.labels[N:]
-        obs_rest     = self.zarr_obs[N:]      # shape (total_steps - N, dim_obs)
-        actions_rest = self.zarr_action[N:]   # shape (total_steps - N, dim_action)
-
-        # 2) Define label priorities
-        order_map = {
-            "path1_before_k":  0,
-            "path0_after_k":   1,
-            "path0_before_k":  2,
-            "path1_after_k":   3,
-        }
-        LOWEST_PRIORITY = 999
-
-        def get_sort_key(label):
-            # Unknown labels => 999, so they end up at the back (but preserve relative order)
-            return order_map.get(label, LOWEST_PRIORITY)
-
-        # 3) Zip the sub-block so we can sort them all together
-        zipped_sub = list(zip(labels_sub, obs_sub, actions_sub))
-        # Sort by label priority
-        zipped_sub_sorted = sorted(zipped_sub, key=lambda x: get_sort_key(x[0]))
-        # Unzip back into separate sequences
-        labels_sub_sorted, obs_sub_sorted, actions_sub_sorted = zip(*zipped_sub_sorted)
-
-        # 4) Convert obs_sub_sorted/actions_sub_sorted to NumPy arrays
-        #    (each is currently a tuple of shape (N, dim_obs) or (N, dim_action))
-        obs_sub_sorted     = np.array(obs_sub_sorted)
-        actions_sub_sorted = np.array(actions_sub_sorted)
-
-        # 5) Concatenate sorted sub-block with remainder
-        #    along axis=0 (row-wise)
-        obs_concat     = np.concatenate([obs_sub_sorted, obs_rest], axis=0)
-        actions_concat = np.concatenate([actions_sub_sorted, actions_rest], axis=0)
-
-        # 6) Update your class attributes
-        #    Labels can remain as a Python list, so we just do a list concatenation
-        self.labels      = list(labels_sub_sorted) + labels_rest
-        # If you *need* obs and actions as lists of lists, convert to .tolist()
-        self.zarr_obs    = obs_concat.tolist()
-        self.zarr_action = actions_concat.tolist()
-
-        # If you prefer keeping them as NumPy arrays:
-        #   self.zarr_obs    = obs_concat
-        #   self.zarr_action = actions_concat
-
+    # ------------------------------------------------------------------
+    # Color-coding methods
+    # ------------------------------------------------------------------
 
     def color_by_time(self):
         """
-        Just uses the regular color gradient and marks the pivot point in black. 
+        Simple time-based color gradient, marking pivot point in black, etc.
+        Example usage of your plotting utility.
         """
+        if self.pivot_point is None:
+            raise RuntimeError("Call calculate_pivot_points() before calling color methods.")
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_obs = self.zarr_obs[step]
             curr_action = self.zarr_action[step]
 
             color = None
-
             if step == self.pivot_point:
                 color = 'black'
 
-
-            # If you don't pass in a color, it uses the gradient
-            pu.plot_denoising_trajectories(curr_action, (step-self.start_timestep), self.demo_num, color)
-
+            # If color is None, some default gradient is used:
+            pu.plot_denoising_trajectories(curr_action, (step - self.start_timestep), self.demo_num, color)
 
     def color_code_3_segments(self):
         """
-        Colors the pathway into 3: (start, one_block), (one_block, pivot_point), (pivot_point, both_blocks),
-        and marks the pivot point.
+        Colors the path in 3 segments:
+        1) [no_blocks, one_block]
+        2) [one_block, pivot_point]
+        3) [pivot_point, both_blocks]
+        pivot_point is explicitly indicated (e.g., green).
         """
+        if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
+            raise RuntimeError("Call calculate_pivot_points() first.")
+
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_obs = self.zarr_obs[step]
             curr_action = self.zarr_action[step]
+
             if self.no_blocks <= step <= self.one_block:
                 color = 'red'
             elif step == self.pivot_point:
                 color = 'green'
-            elif self.one_block <= step <= self.pivot_point:
+            elif self.one_block < step <= self.pivot_point:
                 color = 'yellow'
-            elif self.pivot_point <= step <= self.both_blocks:
+            elif self.pivot_point < step <= self.both_blocks:
                 color = 'blue'
             else:
-                assert False, "Ranges don't make sense."
-
-
+                # If there's a gap after both_blocks or before no_blocks, handle or raise an error
+                raise ValueError(f"Step {step} out of expected range.")
 
             pu.plot_denoising_trajectories(curr_action, step, self.demo_num, color)
 
-            
-
-
-    
     def color_code_at_k(self):
-        '''
-        Colors the pathway into 4: 0_before, 0_after, 1_before, 1_after, relative to swtich_step_k.
-        '''
-
-        # path_0 = (self.start_timestep, self.pivot_point)
-        # path_1 = (self.pivot_point, self.end_timestep + 1)
-
-
+        """
+        Colors the path with respect to switch_step_k, dividing path0 and path1
+        into "before_k" and "after_k". Also marks pivot points with special colors.
+        """
+        if self.switch_step_k is None:
+            raise RuntimeError("Must call label_segments_from_k() or otherwise set switch_step_k first.")
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_obs = self.zarr_obs[step]
             curr_action = self.zarr_action[step]
 
-            # print(f"step: {step}, in range ({self.start_timestep}, {self.end_timestep})")
-            # print(f"self.no_blocks: {self.no_blocks}")
-            # print(f"self.one_block: {self.one_block}")
-            # print(f"self.both_blocks: {self.both_blocks}")
-            # print(f"self.pivot_point: {self.pivot_point}")
-            # print(f"self.switch_step_k: {self.switch_step_k}")
-            # print(f"self.pivot_point+self.switch_step_k: {self.pivot_point+self.switch_step_k}")
-
-            # print("\n")
-
             # Pathway 0
-            if self.no_blocks <= step and step < (self.switch_step_k + self.start_timestep):
+            if self.no_blocks <= step < (self.switch_step_k + self.start_timestep):
                 color = 'red'
             elif step == (self.switch_step_k + self.start_timestep):
                 color = 'cyan'
-            elif (self.switch_step_k + self.start_timestep) <= step and step < self.pivot_point:
+            elif (self.switch_step_k + self.start_timestep) < step < self.pivot_point:
                 color = 'orange'
-     
-            # Pathway 1
+
+            # Pivot 
             elif step == self.pivot_point:
                 color = 'black'
+
+            # Pathway 1
             elif step == (self.pivot_point + self.switch_step_k):
                 color = 'cyan'
-            elif self.pivot_point <= step and step <= (self.pivot_point + self.switch_step_k):
+            elif self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
                 color = 'blue'
-            elif (self.pivot_point + self.switch_step_k) <= step and step <= self.both_blocks:
+            elif (self.pivot_point + self.switch_step_k) < step <= self.both_blocks:
                 color = 'purple'
             else:
-                assert False, "Step is out of documented range."
+                raise ValueError(f"Step {step} out of documented range.")
 
             pu.plot_denoising_trajectories(curr_action, step, self.demo_num, color)
-    
+
+    # ------------------------------------------------------------------
+    # One-shot convenience method
+    # ------------------------------------------------------------------
+
     def chunk_path(self, switch_step_k=None, dist=None, target_num=None):
         """
-        Chunk the pathway based on the pivot point and color-code the segments.
+        Convenience method that:
+        - Initializes the global plot
+        - Calculates pivot points
+        - Labels the segments
+        - (Optionally) calls a specific color-coding method
+        - Plots the final state of the environment
 
-        Plots global_plots
+        Returns:
+        --------
+        self.labels : The final list of labels for each timestep.
         """
+        pu.init_global_plots(self.zarr_obs[self.start_timestep], self.demo_num)
+
+        self.calculate_pivot_points()
 
         if switch_step_k is not None:
-            self.switch_step_k = switch_step_k
+            self.label_segments_from_k(switch_step_k)
 
-        self.start_obs = self.zarr_obs[self.start_timestep]
-        pu.init_global_plots(self.start_obs, self.demo_num)
-
-        self.get_pivot_points()
-        self.label_segments_from_k()
-        # # self.reorder_around_k()
-        # self.reorder_first_470()
-
-        # self.color_by_time()
+        # Example: color_code_3_segments (You can swap in color_by_time / color_code_at_k if you prefer)
         self.color_code_3_segments()
-        # self.color_code_at_k()
 
         if dist is not None and target_num is not None:
             pu.plot_dist_to_target_demo(target_num, self.demo_num, dist)
 
-        
         pu.close_global_plots(self.zarr_obs[self.end_timestep], self.demo_num, "3_segments")
-
         return self.labels
 
 
 
 
-# 1,000 demonstrations (root['meta']['episode_ends'])
-
 
 class ModifyDemos:
-
     def __init__(self, mode='abs'):
-        # case on value of mode
+        """
+        Open the desired zarr dataset. Store observations/actions for further use.
+        """
         if mode == 'abs':
             self.zarr_abs = zarr.open("multimodal_push_seed_abs.zarr", mode='r')
             self.obs = self.zarr_abs['data']['obs']
             self.action = self.zarr_abs['data']['action']
-
         elif mode == 'rel':
             self.zarr_rel = zarr.open("multimodal_push_seed.zarr", mode='r')
             self.obs = self.zarr_rel['data']['obs']
@@ -451,177 +435,184 @@ class ModifyDemos:
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
-
-    def get_block_positions(self, obs):
-        
-        block = {
+    def _get_blocks_as_dicts(self, obs):
+        """
+        Given a single observation with 6 block entries,
+        return a list of two dicts (one for each block).
+        """
+        block1 = {
             'x': obs[0],
-            'y': obs[1], 
+            'y': obs[1],
             'orientation': obs[2]
         }
-
         block2 = {
             'x': obs[3],
             'y': obs[4],
             'orientation': obs[5]
         }
+        return [block1, block2]
 
-        return (block, block2)
-
-    def calculate_environment_similarity(self, env1, env2, method="rms"):
+    def calculate_environment_similarity(self, blocks_env1, blocks_env2, method="rms"):
         """
-        Computes the similarity between two environments by optimally matching the blocks
-        in the two environments using the Hungarian algorithm.
+        Computes the similarity between two lists of block dictionaries, 
+        each containing [{'x':..., 'y':..., 'orientation':...}, ...]. 
+        We match blocks via the Hungarian algorithm to minimize 
+        distance in (x, y) space.
 
         Arguments:
-        env1, env2 -- Each environment consists of two blocks with (x, y, orientation).
-        method -- Either 'rms' (root mean square distance) or 'mean' (average distance).
+        -----------
+        blocks_env1, blocks_env2 : list of 2 dicts, 
+            each dict with keys 'x','y','orientation'.
+        method : str, 'rms' or 'mean'
 
         Returns:
-        A similarity score (lower is more similar).
+        --------
+        A single float indicating the distance between the two envs.
         """
-        (dist1, (block1_env1, block2_env1)) = env1
+        # Unpack each environment (2 blocks each).
+        block1_env1, block2_env1 = blocks_env1
+        block1_env2, block2_env2 = blocks_env2
 
-        if isinstance(env2, tuple) and len(env2) == 2:
-            (block1_env2, block2_env2) = env2
-        else:
-            # Case 2: env2 is a tuple like (dist, (block1_env2, block2_env2))
-            (dist, (block1_env2, block2_env2)) = env2
-
-        
-        # Extract positions (x, y) and orientations
-        blocks_env1 = [
-            {'pos': [block1_env1['x'], block1_env1['y']], 'orientation': block1_env1['orientation']},
-            {'pos': [block2_env1['x'], block2_env1['y']], 'orientation': block2_env1['orientation']}
+        # Prepare for cost matrix in (x,y) only
+        blocks1 = [
+            {'pos': [block1_env1['x'], block1_env1['y']], 
+             'orientation': block1_env1['orientation']},
+            {'pos': [block2_env1['x'], block2_env1['y']], 
+             'orientation': block2_env1['orientation']}
         ]
-        blocks_env2 = [
-            {'pos': [block1_env2['x'], block1_env2['y']], 'orientation': block1_env2['orientation']},
-            {'pos': [block2_env2['x'], block2_env2['y']], 'orientation': block2_env2['orientation']}
+        blocks2 = [
+            {'pos': [block1_env2['x'], block1_env2['y']], 
+             'orientation': block1_env2['orientation']},
+            {'pos': [block2_env2['x'], block2_env2['y']], 
+             'orientation': block2_env2['orientation']}
         ]
 
-        # Compute pairwise distances (position only)
         cost_matrix = np.array([
-            [euclidean(block1['pos'], block2['pos']) for block2 in blocks_env2]
-            for block1 in blocks_env1
+            [euclidean(b1['pos'], b2['pos']) for b2 in blocks2]
+            for b1 in blocks1
         ])
 
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
-
         matched_distances = [cost_matrix[i, j] for i, j in zip(row_ind, col_ind)]
 
         if method == "rms":
             return np.sqrt(np.mean(np.square(matched_distances)))
         elif method == 'mean':
             return np.mean(matched_distances)
+        else:
+            raise ValueError(f"Unknown method: {method}")
 
-        return None
-
-
-    def find_closest_env(self, target_env, all_envs, method='rms'):
+    def get_all_environments(self):
         """
-
-        (Helper) Returns a list of the closest environments to a single target environment.
-        
-        Args:
-            target_env: Tuple of dictionaries representing the target environment (block1, block2). 
-            all_envs: List of tuples of dictionaries representing all environments
-            method: Method to calculate distance between environments. Options: 'weighted', 'rms'
-        
+        Return a list of dictionaries. Each dict holds:
+            - demo_idx (int): Index of this demonstration
+            - start_timestep (int)
+            - end_timestep (int)
+            - blocks (list of 2 dicts): block positions for that environment
         """
+        envs = []
+        for i in range(len(EPISODE_ENDS) - 1):
+            start_ts = EPISODE_ENDS[i]
+            end_ts = EPISODE_ENDS[i + 1] - 1
+            blocks = self._get_blocks_as_dicts(self.obs[start_ts])
 
+            env_data = {
+                'demo_idx': i,
+                'start_timestep': start_ts,
+                'end_timestep': end_ts,
+                'blocks': blocks
+            }
+            envs.append(env_data)
+        return envs
+
+    def find_closest_envs(self, target_env_data, all_envs, method='rms'):
+        """
+        Given a target environment dict, compute distances to all_envs 
+        (each a dict with 'blocks'), return a list sorted by ascending distance.
+        """
+        target_blocks = target_env_data['blocks']
         distances = []
-        for (start_timestep, env) in all_envs:
+        for env_data in all_envs:
+            dist = self.calculate_environment_similarity(
+                target_blocks, env_data['blocks'], method=method
+            )
+            # Attach the computed distance
+            distances.append({
+                **env_data,   # copy over everything (demo_idx, start_timestep, etc.)
+                'distance': dist
+            })
 
-            demo_num = EPISODE_ENDS.index(start_timestep)
-            
-            dist = self.calculate_environment_similarity(target_env, env, method=method)
-            
-           
-            if demo_num == 10: 
-                print(f"Distance between target and {demo_num} is {dist}")
+        distances.sort(key=lambda d: d['distance'])
+        return distances
 
-            distances.append((start_timestep, env, dist))
-        
-        # Sort environments by distance to the target
-        distances.sort(key=lambda x: x[2])
-        return distances  # Returns a list of environments sorted by proximity
-
-    def get_closest_env(self, target_demo=0, num_demos=None):
-
+    def get_closest_envs(self, target_demo=0, num_demos=None, method='rms'):
         """
-        Returns a list of all the closest environments to the target demo.
-
-        Args
-            target_demo: Index of the target demo to compare to. (default: 0)
-
-        Returns
-            target_env: Tuple of (start_timestep, env), the target environment to compare to.
-            closest_env: List of (start_timestep, env, dist), the closest environments to the target demo. 
-
+        Return:
+            - The target environment data (dict)
+            - A list of environment dicts sorted by ascending distance 
+              (each dict includes 'distance')
         """
+        all_envs = self.get_all_environments()
 
-        all_envs = []
+        # Extract the one we want as target
+        target_env_data = all_envs.pop(target_demo)
 
-        # Genearate all environments (just tracking starting block positions). Should do this outside the loop to prevent redundant calculations for all_envs.
-
-
-        for start_timestep in EPISODE_ENDS[:-1]:
-            obs = self.obs[start_timestep]
-            env = (start_timestep, self.get_block_positions(obs))
-            all_envs.append(env)
-
-        target_env = all_envs.pop(target_demo)
-        closest_env = self.find_closest_env(target_env, all_envs)
+        # Now find the closest ones
+        sorted_by_dist = self.find_closest_envs(target_env_data, all_envs, method=method)
 
         if num_demos is not None:
-            closest_env = closest_env[:num_demos]
-        return (target_env, closest_env)
-    
-        
-    def print_closest_env(self, target_demo=0, num_demos=5):
+            sorted_by_dist = sorted_by_dist[:num_demos]
 
-        if os.path.exists(f"global_plots"):
-            shutil.rmtree(f"global_plots")
-            os.makedirs(f"global_plots")
+        return target_env_data, sorted_by_dist
 
 
-        # Plot the target demonstration
-        (target_env, closest_env) = self.get_closest_env(target_demo, num_demos)
 
-    
-        (start_timestep, (target_block1, target_block2)) = target_env
-        end_timestep = EPISODE_ENDS[target_demo+1]-1
+    def print_closest_envs(self, target_demo=0, num_demos=5):
+        """
+        Demonstrates how to:
+          1) Grab the target env and its closest demos.
+          2) Instantiate PathSegmenter for each one.
+          3) Plot/label the path with chunk_path or any other method.
+        """
 
-        segment_path = PathSegmenter(self.obs, self.action, start_timestep, end_timestep, target_demo)
-        labels = segment_path.chunk_path(switch_step_k=10, dist=0, target_num=target_demo)
+        # Clear old plots
+        if os.path.exists("global_plots"):
+            shutil.rmtree("global_plots")
+        os.makedirs("global_plots", exist_ok=True)
 
-        # Basically I only label between the start and end timestep.
+        # Get the target environment data and the closest few
+        target_env_data, closest_envs = self.get_closest_envs(target_demo, num_demos)
 
-        # pu.init_global_plots(self.obs[start_timestep], target_demo)
-        # pu.plot_denoising_trajectories(self.action[start_timestep], 0, target_demo)
-        # pu.close_global_plots(self.obs[end_timestep], target_demo)
+        print(f"\n--- Target Environment: Demo {target_env_data['demo_idx']} ---")
+        print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
 
-        for (start_timestep, env, dist) in closest_env:
+        # 1) Plot the target demonstration
+        seg_target = PathSegmenter(
+            zarr_obs=self.obs,
+            zarr_action=self.action,
+            start_timestep=target_env_data['start_timestep'],
+            end_timestep=target_env_data['end_timestep'],
+            demo_num=target_env_data['demo_idx']
+        )
+        # You can pick any method or color coding you like here:
+        labels = seg_target.chunk_path(switch_step_k=10)
 
-            (block1, block2) = env
+        # 2) Now, do the same for each closest environment
+        print(f"\n--- Closest Environments to Demo {target_demo} ---")
+        for env_data in closest_envs:
+            print(f"Demo {env_data['demo_idx']} "
+                  f"(start={env_data['start_timestep']}, end={env_data['end_timestep']}) "
+                  f"is {env_data['distance']:.3f} away.")
 
-            # NOTE: I should just make them all relative indexes but this is a brute force solution
-
-            
-
-            demo_num = EPISODE_ENDS.index(start_timestep)
-            end_timestep = EPISODE_ENDS[demo_num+1]-1
-            print(f"Demo {demo_num} is {dist} away from target demo {target_demo}.")
-
-            segment_path = PathSegmenter(self.obs, self.action, start_timestep, end_timestep, demo_num)
-            labels = segment_path.chunk_path(switch_step_k=10, dist=dist, target_num=target_demo)
-            print("Labels")
-        
-
-            # Let's create a new path based off target and closest envs
-
-            
-
+            seg_closest = PathSegmenter(
+                zarr_obs=self.obs,
+                zarr_action=self.action,
+                start_timestep=env_data['start_timestep'],
+                end_timestep=env_data['end_timestep'],
+                demo_num=env_data['demo_idx']
+            )
+            # Provide distance & target_num so it can annotate if needed
+            seg_closest.chunk_path(switch_step_k=10, dist=env_data['distance'], target_num=target_demo)
     
 
             
@@ -633,7 +624,7 @@ class ModifyDemos:
 def main():
 
     demos = ModifyDemos()
-    demos.print_closest_env(target_demo=0, num_demos=5)
+    demos.print_closest_envs(target_demo=0, num_demos=5)
 
 
     # print(os.getcwd())
@@ -657,9 +648,6 @@ def main():
     #     segmenter = PathSegmenter(zarr_obs, zarr_action, start_timestep, end_timestep, demo_num)
     #     segmenter.chunk_path(switch_step_k=10)
 
-
-
-   
     
 
 if __name__ == "__main__":
