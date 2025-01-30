@@ -159,17 +159,6 @@ def plot_targets (obs, ax):
     plot_rectangles(target2_x, target2_y, orientation=0, color='lightgreen', label='Target 2', opacity=0.3, ax=ax)
 
 
-# def get_vertical_offset(plot_num): 
-#     """
-#     Calculates the vertical offset of the text by incrementing every time something is added to each plot per batch. 
-#     """
-
-#     INNER_STEP[plot_num]
-#     if batch in DISPLAY_BATCHES:
-#         INNER_STEP[batch] += 1 
-#         return 0.025 * INNER_STEP[batch]  
-#     return 0.025  
-
 def get_distance_between(x1, y1, x2, y2):
     """
     Calculate the distance between two points. 
@@ -423,110 +412,6 @@ def is_successful(obs):
     # return False, b0_closest_dist, b0_closest_target, b1_closest_dist, b1_closest_target
     return False, b0_in_target, b1_in_target
 
-def plot_successful(obs_after, batch, ax):
-    """
-    Plot if the task was successful.
-    """
-
-    # TODO Start a list of the succesful batches and store these values to avoid computing them twice. 
-    if is_successful(obs=obs_after, batch=batch)[0]:
-        ax.text(
-            TEXT_X_START, TEXT_Y_START - get_vertical_offset(batch=batch),
-            'Successful!', color='green', fontsize=9, transform=ax.transAxes
-        )
-        return True
-    else:
-        return False
-
-def plot_lie_step(step, batch, last_lie_step, ax):
-
-    # ONLY IF ACTUALLY DOING ROTATIONS
-    if last_lie_step[batch] == step:
-        ax.text(TEXT_X_START, TEXT_Y_START - (get_vertical_offset(batch=batch)), 'Lying...', color='red', fontsize=9, transform=ax.transAxes)
-
-
-def init_plots(step):
-    
-    # for batch in DISPLAY_BATCHES: 
-    
-    fig, ax = plt.subplots(figsize=(12, 12))
-    ax.set_title(f"Training data from timestep {START_TIMESTEP} to {END_TIMESTEP}")
-    ax.set_xlim(-0.5, 1.0)
-    ax.set_ylim(-1.0, 0.5)
-    ax.set_xlabel("X-axis Label")
-    ax.set_ylabel("Y-axis Label")
-
-    plot_key = f"step_{step}"
-    PLOT_REFERENCES[plot_key] = (fig, ax)
-
-def plot_env_after_step(step, desired_trajectory, obs_before, obs_after, batch, last_lie_step):
-
-    """
-    Plots the transformation of the env at this step. 
-
-    desired_trajectory: The desired trajectory for the effector. (x,y) coordinates for action horizon
-    obs_before: The observation before the step
-    obs_after: The observation after the step
-    batch: The batch number
-    last_lie_step: The last step we lied on. // trying to remove this functionality and move it to other functions
-    """
-
-    if batch in DISPLAY_BATCHES:
-    
-        (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_step_{step}"]
-
-        plot_targets(obs=obs_after, batch=batch, ax=ax)
-        plot_blocks(obs_before=obs_before, obs_after=obs_after, batch=batch, ax=ax)
-        plot_desired_trajectory(desired_trajectory=desired_trajectory, batch=batch, ax=ax)
-
-        plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch, ax=ax)
-        plot_distance_from_target(batch=batch, obs_after=obs_after, ax=ax)
-        plot_successful(obs_after=obs_after, batch=batch, ax=ax)
-        plot_lie_step(step=step, batch=batch, last_lie_step=last_lie_step, ax=ax)
-
-        global INNER_STEP
-        INNER_STEP = [0] * NUM_BATCHES
-        fig.savefig(f"plots/batch_{batch}/step_{step}.png", bbox_inches='tight')
-        plt.close()
-    
-    else:
-        plot_blocks(obs_before=obs_before, obs_after=obs_after, batch=batch, ax=None, plot=False)
-        plot_effector(obs_before=obs_before, obs_after=obs_after, batch=batch, ax=None, plot=False)
-
-        # Need to update the value of distance between for all blocks
-
-
-def plot_direction_vector(batch, curr_step, obs_before, obs_rotated, obs_step):
-    (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_step_{curr_step}"]
-
-    old_effector = {
-        'x': obs_before[batch][obs_step][6].item(), 
-        'y': obs_before[batch][obs_step][7].item(),
-    }
-
-    new_effector = {
-        'x': obs_rotated[batch][obs_step][6].item(), 
-        'y': obs_rotated[batch][obs_step][7].item(),
-    }
-
-    # Calculate the change in x and y for the arrow direction
-    delta_x = new_effector['x'] - old_effector['x']
-    delta_y = new_effector['y'] - old_effector['y']
-
-    # Plot the arrow from the old effector position to the new effector position
-    ax.arrow(
-        old_effector['x'], old_effector['y'],  # Start of the arrow at the old effector position
-        delta_x, delta_y,                       # Arrow components (change in x and y)
-        head_width=0.025, head_length=0.01,     # Adjust arrowhead size for visibility
-        fc='yellow', ec='yellow',               # Arrow color
-        label="Lied Direction"
-    )
-
-
-def plot_coordinate(x,y, batch, curr_step):
-    (fig, ax) = PLOT_REFERENCES[f"batch_{batch}_step_{curr_step}"]
-    ax.scatter(x, y, color='black', marker='o', s=100, label='Coordinate')
-
 
 def plot_isolated_blocks(obs_before, ax, label_position=False):
     """
@@ -553,78 +438,6 @@ def plot_isolated_blocks(obs_before, ax, label_position=False):
         # Print the values onto the plot
         ax.text(TEXT_X_START, TEXT_Y_START-0.175, f'Block 1 Position: ({block_before["x"]:.4f}, {block_before["y"]:.4f})', color='black', fontsize=9, transform=ax.transAxes)
         ax.text(TEXT_X_START, TEXT_Y_START-0.2, f'Block 2 Position: ({block2_before["x"]:.4f}, {block2_before["y"]:.4f})', color='black', fontsize=9, transform=ax.transAxes)
-
-def plot_isolated_effector(obs, batch, ax, obs_step=0, alpha=0.1):
-    
-    effector_actual = {
-        'x': obs[batch][obs_step][6], 
-        'y': obs[batch][obs_step][7],
-    }
-
-    ax.scatter(
-        effector_actual['x'], effector_actual['y'], 
-        color='green', marker='o', s=50, label='Actual Effector', alpha=alpha
-    )
-
-
-
-
-
-def plot_steps_taken(obs_after, batch):
-    """
-    Given the action dictionary of (x,y) coordinates for action_horizon, plot each of the desired next steps. 
-    """
-
-    global GLOBAL_STEP_COUNTER
-    color = COLOR_GRADIENT[GLOBAL_STEP_COUNTER % NUM_STEPS]
-
-    if batch in DISPLAY_BATCHES:
-
-        # Get the plot
-        (fig, ax) = PLOT_REFERENCES[f"batch_{batch}"]
-
-
-        effector_step_1 = {
-        'x': obs_after[batch][0][6], 
-        'y': obs_after[batch][0][7],
-        }
-
-
-        effector_step_2 = {
-            'x': obs_after[batch][1][6], 
-            'y': obs_after[batch][1][7],
-        }
-
-        # ax.scatter(effector_step_1['x'], effector_step_1['y'], color='blue', marker='o', s=25, label='Effector Step 1')
-
-        # ax.scatter(effector_step_2['x'], effector_step_2['y'], color='blue', marker='o', s=25, label='Effector Step 2')
-    
-        ax.scatter(effector_step_1['x'], effector_step_1['y'], color=color, marker='o', s=20, label=f'Effector Step {GLOBAL_STEP_COUNTER + 1}' if GLOBAL_STEP_COUNTER == 0 else "")
-        ax.scatter(effector_step_2['x'], effector_step_2['y'], color=color, marker='o', s=20, label=f'Effector Step {GLOBAL_STEP_COUNTER + 2}' if GLOBAL_STEP_COUNTER == 0 else "")
-
-    
-        if batch == 6: 
-            GLOBAL_STEP_COUNTER += 1
-
-
-def plot_target_stats(last_info, batch, ax):
-
-    stats = last_info[batch]
-
-    for key, value in stats.items():
-
-        color = 'black'
-
-        if key == 'REACH_0':
-            color = 'blue'
-        elif key == 'REACH_1':
-            color = 'orange'
-        elif key == 'TARGET_0_0' or key == 'TARGET_1_0':
-            color = 'lightpink'
-        else:
-            color = 'lightgreen'
-
-        ax.text(TEXT_X_START, TEXT_Y_START - (get_vertical_offset(batch=batch)), f'{key}: {value}', color=color, fontsize=9, transform=ax.transAxes)
 
 
 def color_code_at_k_labels(demo_num):
@@ -660,15 +473,12 @@ def color_code_3_segments_labels(demo_num):
     ax.text(TEXT_X_START, TEXT_Y_START - 0.025, 'Yellow: Return to center', color='yellow', fontsize=9, transform=ax.transAxes)
     ax.text(TEXT_X_START, TEXT_Y_START - 0.05, 'Green: Pivot Point', color='green', fontsize=9, transform=ax.transAxes)
     ax.text(TEXT_X_START, TEXT_Y_START - 0.075, 'Blue: Second block to target', color='blue', fontsize=9, transform=ax.transAxes)
-
-
-
     
 
-    
-
-
-def plot_dist_to_target_demo(target_num, current_num, dist):
+def write_dist_to_target_demo(target_num, current_num, dist):
+    """
+    Write on the plot the distance of the current environment to the target environment. 
+    """
     
     (fig, ax) = PLOT_REFERENCES[f"demo_num_{current_num}"]
 
@@ -685,7 +495,6 @@ def close_global_plots(obs, demo_num, coloring):
         color_code_3_segments_labels(demo_num)
     elif coloring == "at_k":
         color_code_at_k_labels(demo_num)
-    # plot_target_stats(last_info=last_info, batch=batch, ax=ax)
     fig.savefig(f"global_plots/demo_num_{demo_num}.png", bbox_inches='tight')
     plt.close()
 
@@ -706,16 +515,6 @@ def init_global_plots(obs_before, demo_num):
     plot_targets(obs=obs_before, ax=ax)
 
     return fig, ax
-
-def add_text_to_plot(demo_num, text):
-
-    # Add custom text to the plot 
-
-    (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
-
-    for line in text: 
-        ax.text(TEXT_X_START, TEXT_Y_START - .150, line, color='black', fontsize=9)
-
        
 def init_denoising_trajectories(obs, run_step, eff_x, eff_y): 
     """
@@ -741,63 +540,26 @@ def init_denoising_trajectories(obs, run_step, eff_x, eff_y):
                 eff_x.item(), eff_y.item(), color='black', marker='o', s=100, label='Effector', alpha=0.5
             )
 
-
-
-def close_denoising_trajectories(desired_trajectory, run_step, obs_after, obs_before):
-    # batch = 7 # NOTE: Hard coded
-
-    for batch in DISPLAY_BATCHES:
-
-
-        for denoising_step in DISPLAY_DENOISING_STEPS:
-            plot_key = f"batch_{batch}_run_step_{run_step}_denoising_{denoising_step}_diff"
-            (fig, ax) = PLOT_REFERENCES[plot_key]
-
-            next_x = obs_after[batch][0][6]
-            next_y = obs_after[batch][0][7]
-        
-            ax.text( 0.05, 1-0.1, f"Next step taken: ({next_x:.4f}, {next_y:.4f})", color='black', fontsize=10, transform=ax.transAxes
-            )
-
-            # if denoising_step == 0: 
-            #     print(f"Step: {run_step} Next step taken: ({next_x:.4f}, {next_y:.4f})")
-            
-            plot_isolated_effector(obs=obs_before, batch=batch, ax=ax, alpha = 0.25)
-            plot_isolated_effector(obs=obs_after, batch=batch, ax=ax, alpha = 0.5)
-
-
-            # ax.scatter(x, y, color='black', marker='o', s=100, label='Next Step')
-
-            # plot_arrow_between_trajectory(desired_trajectory, batch, ax)
-            fig.savefig(f"denoising_plots/batch_{batch}/run_step_{run_step}_denoising_{denoising_step}.png", bbox_inches='tight')
-            plt.close()
-
 def plot_denoising_trajectories(trajectory, run_step, demo_num, color=None):
     """
     Plot the generated trajectory at denoising step, denoising_step. Used for global_plots.
 
     NOTE: Assumes that run_step is relative to its episode (i.e. starts at 0)
     """
-
     
     (fig, ax) = PLOT_REFERENCES[f"demo_num_{demo_num}"]
-    action_horizon = 0 # Demonstration data is saved per time step 
+    action_horizon = 0 # (Here, we are only plotting a single step taken.)
     x_coords = trajectory[0]
     y_coords = trajectory[1]
 
-    # hard coded to plot the pivot point 
-    if color == 'green':
-         ax.scatter(x_coords, y_coords, color=color, alpha=0.5, linewidth=2, label='Denoised Trajectory', edgecolors='black')
 
-    else:
+    if color is None or color == 'gradient':
+        assert NUM_STEPS is not None, "NUM_STEPS must be defined for gradient coloring."
+        color = COLOR_GRADIENT[run_step % NUM_STEPS]
 
-        if color is None: 
-            if run_step >= NUM_STEPS:
-                color = 'black'
-            else:
-                color = COLOR_GRADIENT[run_step % NUM_STEPS]
+    ax.scatter(x_coords, y_coords, color=color, alpha=0.5, linewidth=2, label='Denoised Trajectory')
+    
 
-        ax.scatter(x_coords, y_coords, color=color, alpha=0.5, linewidth=2, label='Denoised Trajectory')
 
 
 

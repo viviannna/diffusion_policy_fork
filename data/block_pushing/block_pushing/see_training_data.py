@@ -145,9 +145,6 @@ import numpy as np
 import os
 import shutil
 
-# We assume 'pu' is some external plotting utility you've written (not shown here).
-# from your_plotting_utils import pu
-
 def reorder_observations_first_n(labels, obs, actions, n=470):
     """
     Utility function to reorder the first n timesteps according to a label map
@@ -211,7 +208,7 @@ class PathSegmenter:
         self.end_timestep = end_timestep
         self.demo_num = demo_num
 
-        # These values will be set by calculate_pivot_points()
+        # These values will be set by calculate_key_points()
         self.no_blocks = None
         self.one_block = None
         self.pivot_point = None
@@ -226,9 +223,9 @@ class PathSegmenter:
         # (Optional) Store the initial observation for convenience
         self.start_obs = None
 
-    def calculate_pivot_points(self):
+    def calculate_key_points(self):
         """
-        Single pass through the demonstration to identify pivotal timesteps.
+        Single pass through the demonstration to identify key timesteps.
         - no_blocks: first time we see neither block in the target
         - one_block: first time we see exactly one block in target
         - both_blocks: first time we see both in target
@@ -278,7 +275,7 @@ class PathSegmenter:
 
         if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
             raise RuntimeError("Pivot points have not been calculated yet. "
-                               "Call calculate_pivot_points() first.")
+                               "Call calculate_key_points() first.")
 
         # Create a label array for the entire dataset length. We'll fill only the relevant range.
         self.labels = [''] * len(self.zarr_obs)
@@ -303,21 +300,20 @@ class PathSegmenter:
 
     def color_by_time(self):
         """
-        Simple time-based color gradient, marking pivot point in black, etc.
-        Example usage of your plotting utility.
+        Simple time-based color gradient, marking pivot point in black.
         """
         if self.pivot_point is None:
-            raise RuntimeError("Call calculate_pivot_points() before calling color methods.")
+            raise RuntimeError("Call calculate_key_points() before calling color methods.")
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_action = self.zarr_action[step]
 
-            color = None
             if step == self.pivot_point:
                 color = 'black'
+            else:
+                color = 'gradient'
 
-            # If color is None, some default gradient is used:
-            pu.plot_denoising_trajectories(curr_action, (step - self.start_timestep), self.demo_num, color)
+            pu.plot_denoising_trajectories(trajectory=curr_action, run_step=(step - self.start_timestep), demo_num=self.demo_num, color=color)
 
     def color_code_3_segments(self):
         """
@@ -328,7 +324,7 @@ class PathSegmenter:
         pivot_point is explicitly indicated (e.g., green).
         """
         if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
-            raise RuntimeError("Call calculate_pivot_points() first.")
+            raise RuntimeError("Call calculate_key_points() first.")
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_action = self.zarr_action[step]
@@ -388,7 +384,7 @@ class PathSegmenter:
 
     def chunk_path(self, switch_step_k=None, dist=None, target_num=None):
         """
-        Convenience method that:
+        Convenience method that for a single demonstration:
         - Initializes the global plot
         - Calculates pivot points
         - Labels the segments
@@ -401,7 +397,7 @@ class PathSegmenter:
         """
         pu.init_global_plots(self.zarr_obs[self.start_timestep], self.demo_num)
 
-        self.calculate_pivot_points()
+        self.calculate_key_points()
 
         if switch_step_k is not None:
             self.label_segments_from_k(switch_step_k)
@@ -410,7 +406,7 @@ class PathSegmenter:
         self.color_code_3_segments()
 
         if dist is not None and target_num is not None:
-            pu.plot_dist_to_target_demo(target_num, self.demo_num, dist)
+            pu.write_dist_to_target_demo(target_num, self.demo_num, dist)
 
         pu.close_global_plots(self.zarr_obs[self.end_timestep], self.demo_num, "3_segments")
         return self.labels
