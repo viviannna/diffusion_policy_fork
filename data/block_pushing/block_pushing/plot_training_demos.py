@@ -21,33 +21,68 @@ def is_successful(obs):
     
     return success, b0_in_target, b1_in_target
 
+def is_touching_block(obs):
+    """
+    Determines if the effector is touching a block.
+    """
+
+    effector = extract_effector_position(obs)
+    blocks = extract_block_position(obs)
+
+    touching_0 = False
+    touching_1 = False
+
+    TOLERANCE = 0.03
+
+
+    if calculate_distance(effector, blocks[0]) < TOLERANCE:
+        touching_0 = True
+    if calculate_distance(effector, blocks[1]) < TOLERANCE:
+        touching_1 = True
+    return touching_0, touching_1
+
+
 def calculate_distance(p1, p2):
     """
     Calculate the Euclidean distance between two points.
     """
     return np.sqrt((p2['x'] - p1['x']) ** 2 + (p2['y'] - p1['y']) ** 2)
 
-def extract_block_and_target_positions(obs_after):
+def extract_block_position(obs_after):
     """
-    Extracts block and target positions from observation data.
+    Extracts block position from observation data.
     """
     blocks = [
         {'x': obs_after[0], 'y': obs_after[1], 'orientation': obs_after[2]},
         {'x': obs_after[3], 'y': obs_after[4], 'orientation': obs_after[5]}
     ]
-    
+    return blocks
+
+def extract_target_position(obs_after):
+    """
+    Extracts target position from observation data.
+    """
+
     targets = [
         {'x': obs_after[10], 'y': obs_after[11]},
         {'x': obs_after[13], 'y': obs_after[14]}
     ]
     
-    return blocks, targets
+    return targets
+
+def extract_effector_position(obs_after):
+    """
+    Extracts effector position from observation data.
+    """
+    effector = {'x': obs_after[6], 'y': obs_after[7]}
+    return effector
 
 def get_blocks_to_target_distance(obs_after):
     """
     Calculates the distance between each block and each target.
     """
-    blocks, targets = extract_block_and_target_positions(obs_after)
+    blocks = extract_block_position(obs_after)
+    targets = extract_target_position(obs_after)
     
     distances = {
         (b_idx, t_idx): calculate_distance(block, target)
@@ -56,6 +91,8 @@ def get_blocks_to_target_distance(obs_after):
     }
     
     return distances
+
+
 
 def find_closest_target(distances, block_idx):
     """
@@ -299,14 +336,12 @@ def add_3_segment_legend(demo_num):
         demo_num (int): Demonstration number for labeling.
     """
     fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
-
     segment_labels = [
-        ("Red: First block to target", 'red'),
-        ("Yellow: Return to center", 'yellow'),
-        ("Green: Pivot Point", 'green'),
-        ("Blue: Second block to target", 'blue'),
-    ]
-
+            ("Red: First block to target", 'red'),
+            ("Yellow: Return to center", '#CCCC00'),
+            ("Green: Pivot Point", 'green'),
+            ("Blue: Second block to target", 'blue'),
+        ]
     for text, color in segment_labels:
         ax.text(TEXT_X_START, increment_text_offset(ax), text, color=color, fontsize=9, transform=ax.transAxes)
 
@@ -356,6 +391,40 @@ def label_environment_distance(current_num, target_num, dist):
             f"Distance to Target Num ({target_num}): {dist:.4f}", 
             color='black', fontsize=9, transform=ax.transAxes)
 
+import textwrap
+
+def custom_label(demo_num, custom_text, color='black'):
+    """
+    Adds a custom label to the plot.
+
+    Parameters:
+        demo_num (int): Demonstration number for labeling.
+        custom_text (str): Text to be added as a custom label.
+    """
+
+    fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
+
+    # Determine available text width in data coordinates
+    plot_width = ax.get_xlim()[1] - ax.get_xlim()[0]
+    max_text_width = 0.2 * plot_width  # 20% of plot width
+
+    ax.text(TEXT_X_START, increment_text_offset(ax), custom_text, color=color, fontsize=9, transform=ax.transAxes)
+
+    # # Wrap text based on max text width
+    # wrapped_text = textwrap.fill(custom_text, width=int(max_text_width / 0.1))  # Adjust 0.05 as needed
+
+    # # Add text to plot
+    # ax.text(
+    #     TEXT_X_START,
+    #     increment_text_offset(ax),
+    #     wrapped_text,
+    #     color="black",
+    #     fontsize=9,
+    #     transform=ax.transAxes,
+    #     verticalalignment="top",
+    #     wrap=True  # Ensure wrapping is enabled for text
+    # )
+
 
 
 # ------------------------------------------------------------------
@@ -372,7 +441,7 @@ def label_environment_distance(current_num, target_num, dist):
 # across different plots.
 # ------------------------------------------------------------------
 
-def plot_effector_actions(action, run_step, demo_num, color=None):
+def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
     """
     Plot the effector's movement steps based on the action dictionary.
 
@@ -400,4 +469,25 @@ def plot_effector_actions(action, run_step, demo_num, color=None):
         color = COLOR_GRADIENT[run_step % TOTAL_NUM_STEPS]
 
     # Plot effector movement
-    ax.scatter(x_coords, y_coords, color=color, alpha=0.5, linewidth=2, label='Effector Actions')
+    ax.scatter(x_coords, y_coords, color=color, alpha=alpha, linewidth=2, label='Effector Actions')
+
+def arrow_to_point(demo_num, x_target, y_target, angle=0, length=0.1, color='black'):
+
+    fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
+
+
+    # Compute arrow endpoint using angle and length
+    dx = length * np.cos(np.radians(angle))  # Change in x
+    dy = length * np.sin(np.radians(angle))  # Change in y
+
+    # Draw the short arrow at the target location
+    ax.annotate(
+        "",
+        xy=(x_target+0.005, y_target+0.005),  # Arrow tip
+        xytext=(x_target + dx, y_target + dy),        # Arrow base
+        arrowprops=dict(
+            arrowstyle="->",
+            color=color,
+            linewidth=1.5
+        )
+    )
