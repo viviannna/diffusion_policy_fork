@@ -1,7 +1,7 @@
 import zarr
 import os
 import shutil
-import copy_plotting_utils as pu
+import plot_training_demos as pu
 import numpy as np
 from scipy.spatial.distance import euclidean
 
@@ -313,7 +313,7 @@ class PathSegmenter:
             else:
                 color = 'gradient'
 
-            pu.plot_denoising_trajectories(trajectory=curr_action, run_step=(step - self.start_timestep), demo_num=self.demo_num, color=color)
+            pu.plot_denoising_trajectories(action=curr_action, run_step=(step - self.start_timestep), demo_num=self.demo_num, color=color)
 
     def color_code_3_segments(self):
         """
@@ -341,7 +341,7 @@ class PathSegmenter:
                 # If there's a gap after both_blocks or before no_blocks, handle or raise an error
                 raise ValueError(f"Step {step} out of expected range.")
 
-            pu.plot_denoising_trajectories(curr_action, step, self.demo_num, color)
+            pu.plot_effector_actions(curr_action, step, self.demo_num, color)
 
     def color_code_at_k(self):
         """
@@ -395,7 +395,7 @@ class PathSegmenter:
         --------
         self.labels : The final list of labels for each timestep.
         """
-        pu.init_global_plots(self.zarr_obs[self.start_timestep], self.demo_num)
+        pu.setup_full_trajectory_plot(self.zarr_obs[self.start_timestep], self.demo_num)
 
         self.calculate_key_points()
 
@@ -406,13 +406,10 @@ class PathSegmenter:
         self.color_code_3_segments()
 
         if dist is not None and target_num is not None:
-            pu.write_dist_to_target_demo(target_num, self.demo_num, dist)
+            pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
 
-        pu.close_global_plots(self.zarr_obs[self.end_timestep], self.demo_num, "3_segments")
+        pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="3_segments")
         return self.labels
-
-
-
 
 
 class ModifyDemos:
