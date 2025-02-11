@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+
+
 # ------------------------------------------------------------------
 # Functions to compute distances between blocks and targets, 
 # determine the closest target for each block, and evaluate 
@@ -32,12 +34,12 @@ def is_touching_block(obs):
     touching_0 = False
     touching_1 = False
 
-    TOLERANCE = 0.03
+    TOLERANCE = 0.031
 
 
-    if calculate_distance(effector, blocks[0]) < TOLERANCE:
+    if calculate_distance(effector, blocks[0]) <= TOLERANCE:
         touching_0 = True
-    if calculate_distance(effector, blocks[1]) < TOLERANCE:
+    if calculate_distance(effector, blocks[1]) <= TOLERANCE:
         touching_1 = True
     return touching_0, touching_1
 
@@ -296,7 +298,7 @@ def finalize_full_trajectory_plot(obs, demo_num, coloring):
     Parameters:
         obs (array-like): Final state observation data.
         demo_num (int): Demonstration number for labeling and file naming.
-        coloring (str): Coloring mode, either "3_segments" or "at_k".
+        coloring (str): Coloring mode, either "3_segments" or "at_k". Used only to set the legends. 
     """
     fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
 
@@ -441,6 +443,22 @@ def custom_label(demo_num, custom_text, color='black'):
 # across different plots.
 # ------------------------------------------------------------------
 
+global COLOR_GRADIENT  
+global TOTAL_NUM_STEPS
+
+COLOR_GRADIENT = None
+TOTAL_NUM_STEPS = None
+
+def set_color_gradient(num_steps=130, map_name='rainbow'):
+    global COLOR_GRADIENT, TOTAL_NUM_STEPS
+    
+    if TOTAL_NUM_STEPS is None:
+        TOTAL_NUM_STEPS = num_steps
+
+    colormap = plt.cm.get_cmap(map_name)
+    COLOR_GRADIENT = colormap(np.linspace(0, 1, num_steps)[::-1])
+
+
 def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
     """
     Plot the effector's movement steps based on the action dictionary.
@@ -455,6 +473,8 @@ def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
         AssertionError: If TOTAL_NUM_STEPS is not defined when using gradient coloring.
     """
 
+    global COLOR_GRADIENT
+
     # Retrieve figure and axis for the given demo number
     fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
 
@@ -463,8 +483,8 @@ def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
 
     # Determine color
     if not color or color == 'gradient':
-        if TOTAL_NUM_STEPS is None: 
-            TOTAL_NUM_STEPS = 130
+        if COLOR_GRADIENT is None:
+            set_color_gradient()
             
         color = COLOR_GRADIENT[run_step % TOTAL_NUM_STEPS]
 
