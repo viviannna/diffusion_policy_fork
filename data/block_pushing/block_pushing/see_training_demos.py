@@ -4,6 +4,7 @@ import shutil
 import plot_training_demos as pu
 import numpy as np
 from scipy.spatial.distance import euclidean
+import subprocess
 
 
 from scipy.spatial.distance import euclidean
@@ -336,13 +337,48 @@ class PathSegmenter:
 
         # Between start and touching the first block... for now I'm just going to make it the same for both pathways
         elif type_k == "midpoint":
-            # this isn't quite the right number. it should be a relative offset from the pivot point
-
-            # Get the earliest one of the first two touches
-
             earliest = min(self.first_touch_0, self.first_touch_1)
-            distance_between_first_touch = earliest - self.start_timestep 
-            self.switch_step_k = (distance_between_first_touch // 2)
+
+            # Compute cumulative distance at each step
+            cumulative_distance = 0
+            half_distance = None
+            total_distance = 0
+            
+            for step in range(self.start_timestep, earliest + 1):
+                # Compute distance traveled at this step
+                step_distance = pu.get_step_distance(self.zarr_obs[step], self.zarr_obs[step - 1])
+                print("Step distance: ", step_distance)
+                total_distance += step_distance
+            
+            half_distance = total_distance / 2  # Midpoint in terms of distance
+            print("Total distance traveled: ", total_distance)
+            print("Half distance: \n", half_distance)
+            cumulative_distance = 0
+
+            for step in range(self.start_timestep, earliest + 1):
+                step_distance = pu.get_step_distance(self.zarr_obs[step], self.zarr_obs[step - 1])
+                cumulative_distance += step_distance
+                
+                
+                if cumulative_distance >= half_distance:
+                    print("Cumulative distance: ", cumulative_distance)
+
+                    # Remember that switch step always be relative to zero 
+                    self.switch_step_k = (step - self.start_timestep) + 1
+                    break
+            
+            
+            
+            
+            # This calculates it by picking the middle time step 
+            # earliest = min(self.first_touch_0, self.first_touch_1)
+            # distance_between_first_touch = earliest - self.start_timestep 
+            # self.switch_step_k = (distance_between_first_touch // 2)
+
+            # I think instead we should just pick the point closest to the middle distance travelled -- I don't think that I really need to track the actual trajectory taken (I hope..?)
+
+
+
 
         elif type_k == "heuristic_middle":
             print("TODO: Implement heuristic_middle for k.")
@@ -377,28 +413,32 @@ class PathSegmenter:
 
         self.labels = [''] * len(self.zarr_obs)
 
-        HARD_CODE_SWITCH_STEP_K_0_669 = 1
-        HARD_CODE_SWITCH_STEP_K_1_669 = 6
+        # HARD_CODE_SWITCH_STEP_K_0_669 = 1
+        # HARD_CODE_SWITCH_STEP_K_1_669 = 6
 
-        HARD_CODE_SWITCH_STEP_K_0_0 = 5
-        HARD_CODE_SWITCH_STEP_K_1_0 = 3
+        # HARD_CODE_SWITCH_STEP_K_0_0 = 5
+        # HARD_CODE_SWITCH_STEP_K_1_0 = 3
 
         for step in range(self.start_timestep, self.end_timestep + 1):
 
-            if self.demo_num == 669:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_669
-            elif self.demo_num == 0:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_0
+            # ==== Hard code switch step ===
+            # if self.demo_num == 669:
+            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_669
+            # elif self.demo_num == 0:
+            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_0
+            # ==== Hard code switch step ===
 
             if self.no_blocks <= step <= (self.switch_step_k + self.start_timestep):
                 self.labels[step] = 'pathA_before_k'
             elif (self.switch_step_k + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
             
-            if self.demo_num == 669:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_669
-            elif self.demo_num == 0:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_0
+            # ==== Hard code switch step ===
+            # if self.demo_num == 669:
+            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_669
+            # elif self.demo_num == 0:
+            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_0
+            # ==== Hard code switch step ===
             
             if self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
                 self.labels[step] = 'pathB_before_k'
@@ -588,19 +628,40 @@ class PathSegmenter:
         pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="at_k")
         return self.labels
 
-    def plot_artificial_path(self):
+    def plot_artificial_path(self, custom_file_name=None):
 
         pu.setup_full_trajectory_plot(self.zarr_obs[self.start_timestep], self.demo_num)
 
-        for step in range(self.start_timestep, self.end_timestep + 1):
+        for step in range(self.start_timestep, self.end_timestep +1 ):
             curr_action = self.zarr_action[step]
-            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient')
+            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, add_text=False)
 
-        pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient")
+        pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
 
         # We don't really care about segments anymore since we merged them together into one artificial demo
 
          
+    def plot_each_step(self, custom_file_name=None):
+        """
+            Instead of plotting all the steps over time, plot each step and then create a video of all them together. Useful for seeing the environment at each step. 
+        """
+
+        for step in range(self.start_timestep, self.end_timestep+1):
+
+            file_name = f"{custom_file_name}_{step}.png"
+            pu.setup_full_trajectory_plot(self.zarr_obs[step], self.demo_num)
+            curr_action = self.zarr_action[step]
+            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, add_text=True)
+            pu.finalize_full_trajectory_plot(obs=self.zarr_obs[step], demo_num=self.demo_num, coloring="gradient", custom_file_name=file_name)
+
+        subprocess.run([
+        "ffmpeg", "-framerate", "2", "-start_number", str(self.start_timestep),
+        "-i", f"global_plots/{custom_file_name}_%d.png",
+        "-vf", "scale=1000:-1:flags=lanczos",
+        "-loop", "0", "-y", "demo0_everystep.mp4"
+        ], capture_output=True, text=True)
+
+
 
 
 
@@ -832,7 +893,7 @@ class ModifyDemos:
         
         # ========================================
 
-    def create_artificial_demo(self, start_0, start_1, ordering):
+    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None):
         """
         Creates a new artificial trajectory by extracting segments from two demos and arranging them based on `ordering`.
 
@@ -877,6 +938,17 @@ class ModifyDemos:
         # demo_1.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_1.label_segments_from_k()
         demo_1.chunk_path(switch_step_k=None, type_k="midpoint", pivot="closest_to_base")
+
+        # ===== TIME TO DEBUG MIDPOINT K
+        custom_name = "demo1_each_step"
+        demo_1.plot_each_step(custom_file_name=custom_name)
+
+        
+       # ==== END DEBUGGING MIDPOINT K
+
+
+
+
 
         # Store extracted segments in a dictionary
         
@@ -946,7 +1018,7 @@ class ModifyDemos:
             demo_num=new_demo_num
         )
 
-        artificial_demo.plot_artificial_path()
+        artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
 
         # artificial_segmenter.artificial_label_segments_from_k()
         # artificial_segmenter.color_code_at_k()
@@ -991,8 +1063,52 @@ def main():
     
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
-    ordering = ['demo0_pathA_before_k', 'demo1_pathA_after_k', 'demo1_pathB_after_k', 'demo0_pathB_after_k']
-    demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering)
+    
+    
+    # Forward
+    ordering = ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+
+    demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
+
+    # Reverse
+    # ordering = ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"]
+
+    # Demo0 
+    # ordering = ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"]
+
+    # Demo1
+    # ordering = ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+
+    # I'm basically going to create a mini video walking through it 
+
+
+    # custom_name = "artificial"
+
+    # for i in range(1, len(ordering)+1, 1):
+    #     sub_ordering = ordering[:i]
+
+    #     print("Subordering: ", sub_ordering)
+    #     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
+
+    # # delete ouput.gif if it exists
+    # if os.path.exists("output.mp4"):
+    #     os.remove("output.mp4")
+
+    # # Step 1: Generate the palette
+    # subprocess.run([
+    # "ffmpeg", "-framerate", "2", "-i", f"global_plots/{custom_name}_%d.png",
+    # "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
+    # ])
+
+    # # Apply palette and slow down frames
+    # subprocess.run([
+    #     "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{custom_name}_%d.png",
+    #     "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
+    #     "-loop", "0", "output.mp4"
+    # ])
+    
+
+
 
 
 

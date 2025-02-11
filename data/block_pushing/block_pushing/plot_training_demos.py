@@ -94,6 +94,16 @@ def get_blocks_to_target_distance(obs_after):
     
     return distances
 
+def get_step_distance(obs_before, obs_after):
+    """
+    Return the total distance traveled between two steps. 
+    """
+
+    effector_before = extract_effector_position(obs_before)
+    effector_after = extract_effector_position(obs_after)
+
+    return calculate_distance(effector_before, effector_after)
+
 
 
 def find_closest_target(distances, block_idx):
@@ -290,7 +300,7 @@ def setup_full_trajectory_plot(obs_before, demo_num):
 
     return fig, ax
 
-def finalize_full_trajectory_plot(obs, demo_num, coloring):
+def finalize_full_trajectory_plot(obs, demo_num, coloring, custom_file_name=None):
     """
     Finalizes and saves a full trajectory plot by adding final block positions
     and applying optional color coding.
@@ -311,7 +321,11 @@ def finalize_full_trajectory_plot(obs, demo_num, coloring):
         add_at_k_color_legend(demo_num)
 
     # Save and close the figure
-    fig.savefig(f"global_plots/demo_{demo_num}.png", bbox_inches='tight')
+
+    if custom_file_name is not None:
+        fig.savefig(f"global_plots/{custom_file_name}", bbox_inches='tight')
+    else:
+        fig.savefig(f"global_plots/demo_{demo_num}.png", bbox_inches='tight')
     plt.close(fig)
 
 # ------------------------------------------------------------------
@@ -365,8 +379,8 @@ def add_at_k_color_legend(demo_num):
     coloring_labels = [
         ("Cyan: Time Step k", 'cyan'),
         ("Black: Path Division", 'black'),
-        ("Path 0: Red -> Orange", 'red'),
-        ("Path 1: Blue -> Purple", 'blue'),
+        ("Path A: Red -> Orange", 'red'),
+        ("Path B: Blue -> Purple", 'blue'),
     ]
 
     for text, color in coloring_labels:
@@ -449,17 +463,23 @@ global TOTAL_NUM_STEPS
 COLOR_GRADIENT = None
 TOTAL_NUM_STEPS = None
 
-def set_color_gradient(num_steps=130, map_name='rainbow'):
+def set_color_gradient(num_steps, map_name='viridis'):
     global COLOR_GRADIENT, TOTAL_NUM_STEPS
-    
+
     if TOTAL_NUM_STEPS is None:
-        TOTAL_NUM_STEPS = num_steps
+        if num_steps is None: 
+            TOTAL_NUM_STEPS = 160
+        else:
+            TOTAL_NUM_STEPS = num_steps
 
-    colormap = plt.cm.get_cmap(map_name)
-    COLOR_GRADIENT = colormap(np.linspace(0, 1, num_steps)[::-1])
+    
+
+    COLOR_GRADIENT = plt.cm.rainbow(np.linspace(0, 1, TOTAL_NUM_STEPS)[::-1])
+    # colormap = plt.cm.get_cmap(map_name)
+    # COLOR_GRADIENT = colormap(np.linspace(0, 1, num_steps)[::-1])
 
 
-def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
+def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5, start_timestep=0, total_steps=None, add_text=False):
     """
     Plot the effector's movement steps based on the action dictionary.
 
@@ -484,13 +504,19 @@ def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5):
     # Determine color
     if not color or color == 'gradient':
         if COLOR_GRADIENT is None:
-            set_color_gradient()
+            set_color_gradient(total_steps)
             
-        color = COLOR_GRADIENT[run_step % TOTAL_NUM_STEPS]
+        color = COLOR_GRADIENT[(run_step - start_timestep) % TOTAL_NUM_STEPS]
+        
+        
+    if add_text == True:
+        ax.text(TEXT_X_START, increment_text_offset(ax), f"Step {run_step}", color='black', fontsize=9, transform=ax.transAxes)
+
 
     # Plot effector movement
     ax.scatter(x_coords, y_coords, color=color, alpha=alpha, linewidth=2, label='Effector Actions')
 
+    
 def arrow_to_point(demo_num, x_target, y_target, angle=0, length=0.1, color='black'):
 
     fig, ax = PLOT_REGISTRY[f"demo_{demo_num}"]
