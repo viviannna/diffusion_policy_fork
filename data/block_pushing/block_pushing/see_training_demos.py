@@ -347,12 +347,9 @@ class PathSegmenter:
             for step in range(self.start_timestep, earliest + 1):
                 # Compute distance traveled at this step
                 step_distance = pu.get_step_distance(self.zarr_obs[step], self.zarr_obs[step - 1])
-                print("Step distance: ", step_distance)
                 total_distance += step_distance
             
             half_distance = total_distance / 2  # Midpoint in terms of distance
-            print("Total distance traveled: ", total_distance)
-            print("Half distance: \n", half_distance)
             cumulative_distance = 0
 
             for step in range(self.start_timestep, earliest + 1):
@@ -361,7 +358,6 @@ class PathSegmenter:
                 
                 
                 if cumulative_distance >= half_distance:
-                    print("Cumulative distance: ", cumulative_distance)
 
                     # Remember that switch step always be relative to zero 
                     self.switch_step_k = (step - self.start_timestep) + 1
@@ -634,7 +630,7 @@ class PathSegmenter:
 
         for step in range(self.start_timestep, self.end_timestep +1 ):
             curr_action = self.zarr_action[step]
-            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, add_text=False)
+            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep)
 
         pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
 
@@ -651,7 +647,7 @@ class PathSegmenter:
             file_name = f"{custom_file_name}_{step}.png"
             pu.setup_full_trajectory_plot(self.zarr_obs[step], self.demo_num)
             curr_action = self.zarr_action[step]
-            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, add_text=True)
+            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, label_step=True)
             pu.finalize_full_trajectory_plot(obs=self.zarr_obs[step], demo_num=self.demo_num, coloring="gradient", custom_file_name=file_name)
 
         subprocess.run([
@@ -939,19 +935,6 @@ class ModifyDemos:
         # demo_1.label_segments_from_k()
         demo_1.chunk_path(switch_step_k=None, type_k="midpoint", pivot="closest_to_base")
 
-        # ===== TIME TO DEBUG MIDPOINT K
-        custom_name = "demo1_each_step"
-        demo_1.plot_each_step(custom_file_name=custom_name)
-
-        
-       # ==== END DEBUGGING MIDPOINT K
-
-
-
-
-
-        # Store extracted segments in a dictionary
-        
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
             "demo0_pathA_before_k": {
@@ -1028,28 +1011,36 @@ class ModifyDemos:
         #     obs=new_obs[-1], demo_num=new_demo_num, coloring="artificial_labels"
         # )
 
-
-      
-    
+    def loop_through_ordering(self, demos, ordering, custom_name="artificial"):
+        """
+        Creates an animation "chunk-by-chunk" for each ordering in the list. Allows you to see the generated trajectory in sections. 
         
+        Requires:
+            - demos object must already have labels (i.e label_segments_from_k() has been called)
 
+        """
 
+        for i in range(1, len(ordering)+1, 1):
+            sub_ordering = ordering[:i]
 
-    
+            print("Subordering: ", sub_ordering)
+            demos.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
 
+        # delete ouput.gif if it exists
+        if os.path.exists("output.mp4"):
+            os.remove("output.mp4")
 
-# def create_new_path(demo_a, demo_b):
+        subprocess.run([
+        "ffmpeg", "-framerate", "2", "-i", f"global_plots/{custom_name}_%d.png",
+        "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
+        ])
 
-#     a_path0_before_k = demo_a.labels.count('path0_before_k')
-
-    # given two demos which have a label splice
-
-    # splice obs to match the indices where where we are only in path0_before_k
-
-    
-            
-   
-
+        # Apply palette and slow down frames
+        subprocess.run([
+            "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{custom_name}_%d.png",
+            "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
+            "-loop", "0", "output.mp4"
+        ])
 
 def main():
 
@@ -1063,52 +1054,23 @@ def main():
     
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
+
+    # Dictionary of all types of orderings:
+    order = {
+        'forward': ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
+        'reverse': ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+        'demo0': ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+        'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+    }
     
     
     # Forward
-    ordering = ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+    ordering = order['forward']
 
     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
+    demos.loop_through_ordering(demos, ordering, custom_name="artificial")
 
-    # Reverse
-    # ordering = ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"]
-
-    # Demo0 
-    # ordering = ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"]
-
-    # Demo1
-    # ordering = ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
-
-    # I'm basically going to create a mini video walking through it 
-
-
-    # custom_name = "artificial"
-
-    # for i in range(1, len(ordering)+1, 1):
-    #     sub_ordering = ordering[:i]
-
-    #     print("Subordering: ", sub_ordering)
-    #     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
-
-    # # delete ouput.gif if it exists
-    # if os.path.exists("output.mp4"):
-    #     os.remove("output.mp4")
-
-    # # Step 1: Generate the palette
-    # subprocess.run([
-    # "ffmpeg", "-framerate", "2", "-i", f"global_plots/{custom_name}_%d.png",
-    # "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
-    # ])
-
-    # # Apply palette and slow down frames
-    # subprocess.run([
-    #     "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{custom_name}_%d.png",
-    #     "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
-    #     "-loop", "0", "output.mp4"
-    # ])
     
-
-
 
 
 

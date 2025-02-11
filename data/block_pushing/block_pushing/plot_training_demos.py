@@ -479,7 +479,7 @@ def set_color_gradient(num_steps, map_name='viridis'):
     # COLOR_GRADIENT = colormap(np.linspace(0, 1, num_steps)[::-1])
 
 
-def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5, start_timestep=0, total_steps=None, add_text=False):
+def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5, start_timestep=0, total_steps=None, label_step=False):
     """
     Plot the effector's movement steps based on the action dictionary.
 
@@ -509,7 +509,7 @@ def plot_effector_actions(action, run_step, demo_num, color=None, alpha=0.5, sta
         color = COLOR_GRADIENT[(run_step - start_timestep) % TOTAL_NUM_STEPS]
         
         
-    if add_text == True:
+    if label_step == True:
         ax.text(TEXT_X_START, increment_text_offset(ax), f"Step {run_step}", color='black', fontsize=9, transform=ax.transAxes)
 
 
