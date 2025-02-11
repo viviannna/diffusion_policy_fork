@@ -1011,7 +1011,7 @@ class ModifyDemos:
         #     obs=new_obs[-1], demo_num=new_demo_num, coloring="artificial_labels"
         # )
 
-    def loop_through_ordering(self, demos, ordering, custom_name="artificial"):
+    def loop_through_ordering(self, ordering, custom_name="artificial"):
         """
         Creates an animation "chunk-by-chunk" for each ordering in the list. Allows you to see the generated trajectory in sections. 
         
@@ -1024,7 +1024,7 @@ class ModifyDemos:
             sub_ordering = ordering[:i]
 
             print("Subordering: ", sub_ordering)
-            demos.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
+            self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
 
         # delete ouput.gif if it exists
         if os.path.exists("output.mp4"):
@@ -1068,7 +1068,7 @@ def main():
     ordering = order['forward']
 
     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
-    demos.loop_through_ordering(demos, ordering, custom_name="artificial")
+    demos.loop_through_ordering(ordering, custom_name="artificial")
 
     
 
