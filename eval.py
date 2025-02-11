@@ -18,23 +18,51 @@ import wandb
 import json
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
+global DISPLAY_BATCHES
+# DISPLAY_BATCHES = [6, 7, 8, 9]
+DISPLAY_BATCHES = [7]
+
 @click.command()
 @click.option('-c', '--checkpoint', required=True)
 @click.option('-o', '--output_dir', required=True)
 @click.option('-d', '--device', default='cuda:0')
 
-def main(checkpoint, output_dir, device):
+@click.option('--n_test', default=None, type=int, help='Override number of test environments')
+@click.option('--test_start_seed', default=None, type=int, help='Override the starting seed')
+
+
+def main(checkpoint, output_dir, device, n_test=None, test_start_seed=None):
 
     def clear_directory(batches):
+        print("\nRemember to sync your DISPLAY_BATCHES values")
+        print("\nRemember to sync your ROTATIONS_PER_BATCH values")
         import os
         import shutil
 
+        if os.path.exists('plots'):
+            shutil.rmtree('plots')
+
+        if os.path.exists('test'):
+            shutil.rmtree('test')
+
+        if os.path.exists('global_plots'):
+            shutil.rmtree('global_plots')
+            os.makedirs('global_plots')
+
+        if os.path.exists('denoising_plots'):
+            shutil.rmtree('denoising_plots')
+    
+        os.makedirs('denoising_plots')
+
         for batch_dir in batches:
             directory = f'plots/batch_{batch_dir}'
-
-            if os.path.exists(directory):
-                shutil.rmtree(directory)  # Remove the directory and all its contents
             os.makedirs(directory)  # Recreate the directory
+
+            directory_test = f'test/batch_{batch_dir}'
+            os.makedirs(directory_test)  # Recreate the directory
+
+            diffusion_directory = f'denoising_plots/batch_{batch_dir}'
+            os.makedirs(diffusion_directory)  # Recreate the directory
 
         # delete data/block_pushing_multimodal/eval and then make new
         if os.path.exists('data/blockpush_eval_output/media'):
@@ -42,7 +70,7 @@ def main(checkpoint, output_dir, device):
         os.makedirs('data/blockpush_eval_output/media')
 
     def convert_step_images_to_gif(batches):
-        
+        # TODO make the test one images too 
         for batch_dir in batches:
             media_dir = pathlib.Path(output_dir).joinpath('media')
             mp4_filename = media_dir.joinpath(f'batch_{batch_dir}/2d_batch_{batch_dir}.mp4')
@@ -55,10 +83,15 @@ def main(checkpoint, output_dir, device):
             # Convert images to video using ffmpeg
             os.system(f"ffmpeg -framerate 2 -i {images_pattern} -c:v libx264 -r 30 {mp4_filename}")
 
+            # Convert the diffusions to video using ffmpeg
+
+            # diffusion_mp4_filename = media_dir.joinpath(f"batch_{batch_dir}/diffusion_batch_{batch_dir}.mp4")
+            # diffusion_images_pattern = f"denoising_plots/batch_{batch_dir}/run_step_%d.png"
+            # os.system(f"ffmpeg -framerate 2 -i {diffusion_images_pattern} -c:v libx264 -r 30 {diffusion_mp4_filename}")
+
+
     
-    batches = [7, 8, 10, 21, 37, 43]
-    
-    clear_directory(batches)
+    clear_directory(DISPLAY_BATCHES)
 
 
     # Commented out -- always overrides. easier to debug
@@ -69,6 +102,11 @@ def main(checkpoint, output_dir, device):
     # load checkpoint
     payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+
+
+
+
+    # print("cfg:\n", cfg)
     cls = hydra.utils.get_class(cfg._target_)
     # workspace = cls(cfg, output_dir=output_dir)
     workspace = cls(cfg)
@@ -85,7 +123,13 @@ def main(checkpoint, output_dir, device):
     device = torch.device(device)
     policy.to(device)
     policy.eval()
-    
+
+    if n_test is not None:
+        cfg.task.env_runner['n_test'] = n_test
+
+    if test_start_seed is not None:
+        cfg.task.env_runner['test_start_seed'] = test_start_seed
+
     # run eval
     env_runner = hydra.utils.instantiate(
         cfg.task.env_runner,
@@ -103,7 +147,7 @@ def main(checkpoint, output_dir, device):
     json.dump(json_log, open(out_path, 'w'), indent=2, sort_keys=True)
 
 
-    convert_step_images_to_gif(batches)
+    convert_step_images_to_gif(DISPLAY_BATCHES)
     
 if __name__ == '__main__':
     main()
