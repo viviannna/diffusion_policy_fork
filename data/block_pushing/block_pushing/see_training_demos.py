@@ -20,6 +20,7 @@ global EPISODE_STARTS
 # Second demonstration ranges from [104, 226]
 # Note that the last value (114962) is actually out of bounds. 
 # So we range from [EPISODE_STARTS[i], EPISODE_STARTS[i+1]-1] 
+# Note I manually added the 0 to the beginning after copy pasting from a breakpoint. 
 
 EPISODE_STARTS = [0,   104,    227,    352,    461,    587,    695,    816,    917,
          1023,   1131,   1253,   1379,   1479,   1599,   1702,   1819,
@@ -490,18 +491,30 @@ class PathSegmenter:
 
     def color_code_at_k(self):
         """
-        Colors the path with respect to switch_step_k, dividing path0 and path1
-        into "before_k" and "after_k". Also marks pivot points with special colors.
+        Colors the path with respect to `switch_step_k`, using colors based on labels.
 
-        NOTE: self.switch_step_k must be an OFFSET from the start of the pivot point. 
+        This function assumes `self.labels` is already populated by `label_segments_from_k()`.
+        It uses a dictionary `label_color_dict` where keys are labels and values are their corresponding colors.
 
+        Args:
+            label_color_dict (dict): Mapping of labels (from `label_segments_from_k`) to colors.
         """
-        if self.switch_step_k is None:
-            raise RuntimeError("Must call label_segments_from_k() or otherwise set switch_step_k first.")
-        
+        assert self.switch_step_k is not None
+        assert self.pivot_point is not None
+        assert self.labels is not None
+
+        label_color_dict = {
+            'pathA_before_k': 'red',
+            'pathA_after_k': 'orange',
+            'pathB_before_k': 'blue',
+            'pathB_after_k': 'purple',
+            'switch_step_k': 'cyan',
+        }
+
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_action = self.action[step]
 
+            # Handle special cases for first touches
             if step == self.first_touch_0:
                 print(f"First touch 0 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
@@ -509,27 +522,14 @@ class PathSegmenter:
                 print(f"First touch 1 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
 
+            # Assign colors based on labels
+            label = self.labels[step]
 
-        
-            # Pathway 0
-            if self.no_blocks <= step < (self.switch_step_k + self.start_timestep):
-                color = 'red'
-            elif step == (self.switch_step_k + self.start_timestep) :
-                color = 'cyan'
-            elif (self.switch_step_k + self.start_timestep) < step < self.pivot_point:
-                color = 'orange'
-
-            # Pivot 
-            elif step == self.pivot_point:
-                color = 'black'
-
-            # Pathway 1
-            if step == (self.pivot_point + self.switch_step_k):
-                color = 'cyan'
-            elif self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
-                color = 'blue'
-            elif (self.pivot_point + self.switch_step_k) < step <= self.both_blocks:
-                color = 'purple'
+            # Handle special cases for colors
+            if step == self.switch_step_k + self.start_timestep or step == self.pivot_point + self.switch_step_k:
+                color = label_color_dict.get('switch_step_k', 'gray')
+            else:
+                color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
 
             pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color=color)
 
