@@ -231,12 +231,12 @@ def reorder_observations_first_n(labels, obs, actions, n=470):
 
 
 class PathSegmenter:
-    def __init__(self, zarr_obs, zarr_action, start_timestep, end_timestep, demo_num):
+    def __init__(self, obs, action, start_timestep, end_timestep, demo_num):
         """
         Initialize with required data and parameters.
         """
-        self.zarr_obs = zarr_obs
-        self.zarr_action = zarr_action
+        self.obs = obs
+        self.action = action
         self.start_timestep = start_timestep
         self.end_timestep = end_timestep
         self.demo_num = demo_num
@@ -270,15 +270,15 @@ class PathSegmenter:
         Plotting and labeling should occur in color_code_ functions, NOT here.  This just populates self values. 
         """
         # You may want to store this for plotting
-        self.start_obs = self.zarr_obs[self.start_timestep]
+        self.start_obs = self.obs[self.start_timestep]
 
         touched_0 = False 
         touched_1 = False
 
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_obs = self.zarr_obs[step]
-            curr_action = self.zarr_action[step]
+            curr_obs = self.obs[step]
+            curr_action = self.action[step]
 
             done, b0_in_target, b1_in_target = pu.is_successful(curr_obs)
             touching_0, touching_1 = pu.is_touching_block(curr_obs)
@@ -320,7 +320,7 @@ class PathSegmenter:
             # Iterate over candidate pivot points
             for step in range(self.one_block, self.both_blocks + 1):
 
-                curr_position = self.zarr_action[step]
+                curr_position = self.action[step]
 
                 # Calculate distance to base position
                 distance = np.linalg.norm(curr_position - base_position)
@@ -347,16 +347,15 @@ class PathSegmenter:
             
             for step in range(self.start_timestep, earliest + 1):
                 # Compute distance traveled at this step
-                step_distance = pu.get_step_distance(self.zarr_obs[step], self.zarr_obs[step - 1])
+                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 total_distance += step_distance
             
             half_distance = total_distance / 2  # Midpoint in terms of distance
             cumulative_distance = 0
 
             for step in range(self.start_timestep, earliest + 1):
-                step_distance = pu.get_step_distance(self.zarr_obs[step], self.zarr_obs[step - 1])
+                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance += step_distance
-                
                 
                 if cumulative_distance >= half_distance:
 
@@ -408,7 +407,7 @@ class PathSegmenter:
 
         assert self.switch_step_k is not None
 
-        self.labels = [''] * len(self.zarr_obs)
+        self.labels = [''] * len(self.obs)
 
         # HARD_CODE_SWITCH_STEP_K_0_669 = 1
         # HARD_CODE_SWITCH_STEP_K_1_669 = 6
@@ -417,25 +416,11 @@ class PathSegmenter:
         # HARD_CODE_SWITCH_STEP_K_1_0 = 3
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-
-            # ==== Hard code switch step ===
-            # if self.demo_num == 669:
-            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_669
-            # elif self.demo_num == 0:
-            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_0
-            # ==== Hard code switch step ===
-
             if self.no_blocks <= step <= (self.switch_step_k + self.start_timestep):
                 self.labels[step] = 'pathA_before_k'
             elif (self.switch_step_k + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
             
-            # ==== Hard code switch step ===
-            # if self.demo_num == 669:
-            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_669
-            # elif self.demo_num == 0:
-            #     self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_0
-            # ==== Hard code switch step ===
             
             if self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
                 self.labels[step] = 'pathB_before_k'
@@ -458,7 +443,7 @@ class PathSegmenter:
             raise RuntimeError("Call calculate_key_points() before calling color methods.")
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_action = self.zarr_action[step]
+            curr_action = self.action[step]
 
             if step == self.pivot_point:
                 color = 'black'
@@ -480,7 +465,7 @@ class PathSegmenter:
 
         
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_action = self.zarr_action[step]
+            curr_action = self.action[step]
 
             alpha = 0.5
 
@@ -522,7 +507,7 @@ class PathSegmenter:
             raise RuntimeError("Must call label_segments_from_k() or otherwise set switch_step_k first.")
         
         for step in range(self.start_timestep, self.end_timestep + 1):
-            curr_action = self.zarr_action[step]
+            curr_action = self.action[step]
 
 
             HARD_CODE_SWITCH_STEP_K_0_669 = 1
@@ -556,12 +541,6 @@ class PathSegmenter:
             # Pivot 
             elif step == self.pivot_point:
                 color = 'black'
-
-            
-            if self.demo_num == 669:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_669
-            elif self.demo_num == 0:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_1_0
 
             # Pathway 1
             if step == (self.pivot_point + self.switch_step_k):
@@ -605,7 +584,7 @@ class PathSegmenter:
         --------
         self.labels : The final list of labels for each timestep.
         """
-        pu.setup_full_trajectory_plot(self.zarr_obs[self.start_timestep], self.demo_num)
+        pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
         self.calculate_key_points(pivot=pivot, type_k=type_k)
 
@@ -622,18 +601,18 @@ class PathSegmenter:
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
 
-        pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="at_k")
+        pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="at_k")
         return self.labels
 
     def plot_artificial_path(self, custom_file_name=None):
 
-        pu.setup_full_trajectory_plot(self.zarr_obs[self.start_timestep], self.demo_num)
+        pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
         for step in range(self.start_timestep, self.end_timestep +1 ):
-            curr_action = self.zarr_action[step]
+            curr_action = self.action[step]
             pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep)
 
-        pu.finalize_full_trajectory_plot(obs=self.zarr_obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
+        pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
 
         # We don't really care about segments anymore since we merged them together into one artificial demo
 
@@ -646,10 +625,10 @@ class PathSegmenter:
         for step in range(self.start_timestep, self.end_timestep+1):
 
             file_name = f"{custom_file_name}_{step}.png"
-            pu.setup_full_trajectory_plot(self.zarr_obs[step], self.demo_num)
-            curr_action = self.zarr_action[step]
+            pu.setup_full_trajectory_plot(self.obs[step], self.demo_num)
+            curr_action = self.action[step]
             pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, label_step=True)
-            pu.finalize_full_trajectory_plot(obs=self.zarr_obs[step], demo_num=self.demo_num, coloring="gradient", custom_file_name=file_name)
+            pu.finalize_full_trajectory_plot(obs=self.obs[step], demo_num=self.demo_num, coloring="gradient", custom_file_name=file_name)
 
         subprocess.run([
         "ffmpeg", "-framerate", "2", "-start_number", str(self.start_timestep),
@@ -862,8 +841,8 @@ class ModifyDemos:
         # ========================================
         # # 1) Plot the target demonstration
         # seg_target = PathSegmenter(
-        #     zarr_obs=self.obs,
-        #     zarr_action=self.action,
+        #     obs=self.obs,
+        #     action=self.action,
         #     start_timestep=target_env_data['start_timestep'],
         #     end_timestep=target_env_data['end_timestep'],
         #     demo_num=target_env_data['demo_idx']
@@ -879,8 +858,8 @@ class ModifyDemos:
         #           f"is {env_data['distance']:.3f} away.")
 
         #     seg_closest = PathSegmenter(
-        #         zarr_obs=self.obs,
-        #         zarr_action=self.action,
+        #         obs=self.obs,
+        #         action=self.action,
         #         start_timestep=env_data['start_timestep'],
         #         end_timestep=env_data['end_timestep'],
         #         demo_num=env_data['demo_idx']
@@ -910,8 +889,8 @@ class ModifyDemos:
 
         # Extract first demonstration
         demo_0 = PathSegmenter(
-            zarr_obs=self.obs,                  # (114962, 16)
-            zarr_action=self.action,            # (114962, 2)
+            obs=self.obs,                  # (114962, 16)
+            action=self.action,            # (114962, 2)
             start_timestep=start_0,
             end_timestep=end_0,
             demo_num=demo_num_0
@@ -924,8 +903,8 @@ class ModifyDemos:
 
         # Extract second demonstration
         demo_1 = PathSegmenter(
-            zarr_obs=self.obs,
-            zarr_action=self.action,
+            obs=self.obs,
+            action=self.action,
             start_timestep=start_1,
             end_timestep=end_1,
             demo_num=demo_num_1
@@ -986,17 +965,17 @@ class ModifyDemos:
         self.action = np.concatenate([self.action, new_action], axis=0)
 
         # Update EPISODE_STARTS with the new demo start
-        new_demo_start = EPISODE_STARTS[-1]
+        new_demo_start = EPISODE_STARTS[-1] 
         new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
-        EPISODE_STARTS.append(new_demo_end)
+        EPISODE_STARTS.append(new_demo_end + 1)
 
-        # len(self.zarr_action) = 115113. so we can only access up to 115112
+        # len(self.action) = 115113. so we can only access up to 115112
 
         # Process the new artificial demo
         new_demo_num = len(EPISODE_STARTS)
         artificial_demo = PathSegmenter(
-            zarr_obs=self.obs,              # (115113, 16)
-            zarr_action=self.action,        # (115113, 2)
+            obs=self.obs,              # (115113, 16)
+            action=self.action,        # (115113, 2)
             start_timestep=new_demo_start,
             end_timestep=new_demo_end,      # Needs to be one less than the actual end 
             demo_num=new_demo_num
@@ -1136,8 +1115,8 @@ def main():
     # zarr_abs = zarr.open("multimodal_push_seed_abs.zarr", mode='r')
     # zarr_rel = zarr.open("multimodal_push_seed.zarr", mode='r')
 
-    # zarr_obs = zarr_rel['data']['obs']
-    # zarr_action = zarr_abs['data']['action']
+    # obs = zarr_rel['data']['obs']
+    # action = zarr_abs['data']['action']
 
     # if os.path.exists('global_plots'):
     #     shutil.rmtree('global_plots')
@@ -1150,7 +1129,7 @@ def main():
 
     #     print(f"Demo {demo_num}: {start_timestep} to {end_timestep}")
 
-    #     segmenter = PathSegmenter(zarr_obs, zarr_action, start_timestep, end_timestep, demo_num)
+    #     segmenter = PathSegmenter(obs, action, start_timestep, end_timestep, demo_num)
     #     segmenter.chunk_path(switch_step_k=10)
 
     
