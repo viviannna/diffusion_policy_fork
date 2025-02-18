@@ -195,32 +195,113 @@ class Demo:
 
         # If you have a special "switch step" concept
         self.switch_step_A = None
+        self.switch_step_B = None
 
         # This will be populated by label_segments_from_k()
-        self.labels = None
+        self.labels = [''] * len(self.obs)
 
-        # (Optional) Store the initial observation for convenience
-        self.start_obs = None
-
-
-
-    def calculate_key_points(self, pivot="midpoint", type_k="midpoint"):
+    def set_switch_step_k(self, type_k="midpoint", switch_step_k=None):
         """
-        First pass through the demonstration to identify key timesteps.
+        Set a fixed or calculate the switch step k (A, B) for the demonstration.
+        """
+
+        assert self.pivot_point is not None, "Must calculate pivot point first."
         
-        - no_blocks: first time we see neither block in the target
-        - one_block: first time we see exactly one block in target
-        - both_blocks: first time we see both in target
-        - pivot_point: midpoint between one_block and both_blocks
+        if type_k == "fixed":
+            assert switch_step_k is not None, "Must provide a tuple (switch_step_A, switch_step_B) to set a fixed switch step."
+            self.switch_step_A, self.switch_step_B = switch_step_k
 
-        Plotting and labeling should occur in color_code_ functions, NOT here.  This just populates self values. 
+        elif type_k == "midpoint":
+     
+
+            # assert self.first_touch_A == min(self.first_touch_A, self.first_touch_B)
+            # assert self.first_touch_B == max(self.first_touch_A, self.first_touch_B)
+
+            first_touched = min(self.first_touch_0, self.first_touch_1)
+            second_touched = max(self.first_touch_0, self.first_touch_1)
+            
+            # Compute cumulative distance at each step for switch_step_A
+            cumulative_distance = 0
+            total_distance = 0
+
+            for step in range(self.start_timestep, first_touched + 1):
+                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                total_distance += step_distance
+            
+            half_distance = total_distance / 2  # Midpoint in terms of distance
+            cumulative_distance = 0
+
+            for step in range(self.start_timestep, first_touched + 1):
+                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                cumulative_distance += step_distance
+                
+                if cumulative_distance >= half_distance:
+                    # switch_step_A is relative to zero
+                    self.switch_step_A = (step - self.start_timestep)
+                    break
+
+            # Compute cumulative distance for switch_step_B
+            cumulative_distance_B = 0
+            total_distance_B = 0
+
+            for step in range(self.pivot_point, second_touched + 1):
+                step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                total_distance_B += step_distance_B
+
+            half_distance_B = total_distance_B / 2  # Midpoint in terms of distance for block B
+            cumulative_distance_B = 0
+
+            for step in range(self.pivot_point, second_touched + 1):
+                step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                cumulative_distance_B += step_distance_B
+
+                if cumulative_distance_B >= half_distance_B:
+                    # switch_step_B is relative to zero
+                    self.switch_step_B = (step - self.pivot_point)
+                    break
+
+        assert self.switch_step_A is not None
+        assert self.switch_step_B is not None
+
+    def set_pivot(self, pivot_type="midpoint"):
         """
-        # You may want to store this for plotting
-        self.start_obs = self.obs[self.start_timestep]
+        Set the pivot point based on the type of pivot specified.
+        """
 
-        touched_0 = False 
+        assert self.one_block is not None and self.both_blocks is not None, "Must set one_block and both_blocks first."
+        
+        self.midpoint = self.one_block + ((self.both_blocks - self.one_block) // 2)
+
+        # Pivot splits the two different points
+        if pivot_type == "midpoint":
+            self.pivot_point = self.midpoint
+        
+        elif pivot_type == "closest_to_base":
+            base_position = np.array([0.3, -0.4]) # (Assumes starting effector position)
+            min_distance = float("inf")
+            best_pivot = None
+
+            # Iterate over candidate pivot points
+            for step in range(self.one_block, self.both_blocks + 1):
+
+                curr_position = self.action[step]
+
+                # Calculate distance to base position
+                distance = np.linalg.norm(curr_position - base_position)
+
+                if distance < min_distance:
+                    min_distance = distance
+                    best_pivot = step
+
+            self.pivot_point = best_pivot
+
+    def calculate_block_touches(self):
+        """
+        Calculate the first time each block is touched.
+        """
+
+        touched_0 = False
         touched_1 = False
-
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_obs = self.obs[step]
@@ -249,117 +330,55 @@ class Demo:
                 if self.both_blocks is None:
                     self.both_blocks = step
 
-        if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks]):
-            raise ValueError("Could not determine pivot points correctly.")
 
-        self.midpoint = self.one_block + ((self.both_blocks - self.one_block) // 2)
-
-        # Pivot splits the two different points
-        if pivot == "midpoint":
-            self.pivot_point = self.midpoint
+    def calculate_key_points(self, pivot_type="midpoint", type_k="midpoint", switch_step_k=None):
+        """
+        First pass through the demonstration to identify key timesteps.
         
-        elif pivot == "closest_to_base":
-            base_position = np.array([0.3, -0.4]) # (Assumes starting effector position)
-            min_distance = float("inf")
-            best_pivot = None
+        - no_blocks: first time we see neither block in the target
+        - one_block: first time we see exactly one block in target
+        - both_blocks: first time we see both in target
+        - pivot_point: midpoint between one_block and both_blocks
 
-            # Iterate over candidate pivot points
-            for step in range(self.one_block, self.both_blocks + 1):
+        Plotting and labeling should occur in color_code_ functions, NOT here.  This just populates self values. 
+        """
 
-                curr_position = self.action[step]
-
-                # Calculate distance to base position
-                distance = np.linalg.norm(curr_position - base_position)
-
-                if distance < min_distance:
-                    min_distance = distance
-                    best_pivot = step
-
-            self.pivot_point = best_pivot
-
-        # K is the point to jump between paths
-        if type_k == "fixed":
-            print("NOTE: Our k values are fixed for this run. ")
-            pass # Should be assigned when label_segments_from_k() is called
-
-        # Between start and touching the first block... for now I'm just going to make it the same for both pathways
-        elif type_k == "midpoint":
-            earliest = min(self.first_touch_0, self.first_touch_1)
-
-            # Compute cumulative distance at each step
-            cumulative_distance = 0
-            half_distance = None
-            total_distance = 0
-            
-            for step in range(self.start_timestep, earliest + 1):
-                # Compute distance traveled at this step
-                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
-                total_distance += step_distance
-            
-            half_distance = total_distance / 2  # Midpoint in terms of distance
-            cumulative_distance = 0
-
-            for step in range(self.start_timestep, earliest + 1):
-                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
-                cumulative_distance += step_distance
-                
-                if cumulative_distance >= half_distance:
-
-                    # Remember that switch step always be relative to zero 
-                    self.switch_step_A = (step - self.start_timestep) + 1
-                    break
-            
-            
-            
-            
-            # This calculates it by picking the middle time step 
-            # earliest = min(self.first_touch_0, self.first_touch_1)
-            # distance_between_first_touch = earliest - self.start_timestep 
-            # self.switch_step_A = (distance_between_first_touch // 2)
-
-            # I think instead we should just pick the point closest to the middle distance travelled -- I don't think that I really need to track the actual trajectory taken (I hope..?)
-
-
-
-
-        elif type_k == "heuristic_middle":
-            print("TODO: Implement heuristic_middle for k.")
-            raise NotImplementedError
-            pass
-            # calculate the vector from the self.start_timestep to 
-
-
+        self.calculate_block_touches()
+        self.set_pivot(pivot_type=pivot_type)
+        self.set_switch_step_k(type_k=type_k, switch_step_k=switch_step_k)
+        
         print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
               f"one_block={self.one_block}, pivot={self.pivot_point}, "
-              f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}")
+              f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
         
-        # Set the value of k to be the midpoint between one_block and both_blocks
-
 
     def label_segments_from_k(self):
         """
         Label each timestep between start_timestep and end_timestep as belonging to
         one of the 'path0' or 'path1' segments, specifically marking whether
-        it comes before/at/after the switch_step_A.
+        it comes before/at/after the switch_step_A/B.
 
         This stores all labels in self.labels.
-        """
+        """ 
 
-        # Create a label array for the entire dataset length. We'll fill only the relevant range. NOTE: Look into this... 
-
-        assert self.switch_step_A is not None
-
-        self.labels = [''] * len(self.obs)
+        # all the assert not nones
+        assert self.no_blocks is not None
+        assert self.one_block is not None
+        assert self.pivot_point is not None
+        assert self.both_blocks is not None
+        assert self.switch_step_B is not None
+        
 
         for step in range(self.start_timestep, self.end_timestep + 1):
+            
             if self.no_blocks <= step <= (self.switch_step_A + self.start_timestep):
                 self.labels[step] = 'pathA_before_k'
             elif (self.switch_step_A + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
             
-            if self.pivot_point < step <= (self.pivot_point + self.switch_step_A):
+            if self.pivot_point < step <= (self.pivot_point + self.switch_step_B):
                 self.labels[step] = 'pathB_before_k'
-            elif (self.pivot_point + self.switch_step_A) < step <= self.end_timestep:
+            elif (self.pivot_point + self.switch_step_B) < step <= self.end_timestep:
                 self.labels[step] = 'pathB_after_k'
             else:
                 pass  # If there's some gap or off-by-one, handle or assert as needed.
@@ -385,7 +404,7 @@ class Demo:
             else:
                 color = 'gradient'
 
-            pu.plot_denoising_trajectories(action=curr_action, run_step=(step - self.start_timestep), demo_num=self.demo_num, color=color)
+            pu.plot_effector_actions(action=curr_action, run_step=(step - self.start_timestep), demo_num=self.demo_num, color=color)
 
     def color_code_3_segments(self):
         """
@@ -395,6 +414,8 @@ class Demo:
         3) [pivot_point, both_blocks]
         pivot_point is explicitly indicated (e.g., green).
         """
+        assert self.no_blocks and self.one_block and self.pivot_point and self.both_blocks, "Call calculate_key_points() first."
+
         if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
             raise RuntimeError("Call calculate_key_points() first.")
 
@@ -423,16 +444,16 @@ class Demo:
                 pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
-            if step == self.first_touch_0:
+            if step == self.first_touch_A:
                 print(f"First touch 0 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
-            elif step == self.first_touch_1:
+            elif step == self.first_touch_B:
                 print(f"First touch 1 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange') 
 
     def color_code_at_k(self):
         """
-        Colors the path with respect to `switch_step_A`, using colors based on labels.
+        Colors the path with respect to `switch_step_A` and 'swich_step_B', using colors based on labels.
 
         This function assumes `self.labels` is already populated by `label_segments_from_k()`.
         It uses a dictionary `label_color_dict` where keys are labels and values are their corresponding colors.
@@ -443,6 +464,8 @@ class Demo:
         assert self.switch_step_A is not None
         assert self.pivot_point is not None
         assert self.labels is not None
+        assert self.pivot_point is not None
+        assert self.switch_step_B is not None
 
         label_color_dict = {
             'pathA_before_k': 'red',
@@ -450,7 +473,9 @@ class Demo:
             'pathB_before_k': 'blue',
             'pathB_after_k': 'purple',
             'switch_step_A': 'cyan',
+            'switch_step_B': 'cyan'
         }
+
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_action = self.action[step]
@@ -466,9 +491,11 @@ class Demo:
             # Assign colors based on labels
             label = self.labels[step]
 
-            # Handle special cases for colors
-            if step == self.switch_step_A + self.start_timestep or step == self.pivot_point + self.switch_step_A:
+            # Handle special cases for switch steps
+            if step == self.switch_step_A + self.start_timestep:
                 color = label_color_dict.get('switch_step_A', 'gray')
+            elif step == self.pivot_point + self.switch_step_B:
+                color = label_color_dict.get('switch_step_B', 'gray')
             else:
                 color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
 
@@ -486,7 +513,7 @@ class Demo:
     # are plotted in the color-coding methods.)
     # ------------------------------------------------------------------
 
-    def chunk_path(self, switch_step_A=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None):
+    def chunk_path(self, switch_step=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None):
         """
         Convenience method that for a single demonstration:
         - Initializes the global plot
@@ -508,17 +535,10 @@ class Demo:
         """
         pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
-        self.calculate_key_points(pivot=pivot, type_k=type_k)
-
-        if type_k == "fixed":
-            self.switch_step_A = switch_step_A
-
-        # if switch_step_A is not None:
-        #     switch_step_A = self.midpoint
-        #     self.label_segments_from_k(switch_step_A)
+        self.calculate_key_points(pivot_type=pivot, type_k=type_k)
         self.label_segments_from_k()
         self.color_code_at_k()
-        # self.color_code_3_segments()
+    
 
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
@@ -558,12 +578,6 @@ class Demo:
         "-vf", "scale=1000:-1:flags=lanczos",
         "-loop", "0", "-y", "demo0_everystep.mp4"
         ], capture_output=True, text=True)
-
-
-
-
-
-        
 
 
 
@@ -788,7 +802,7 @@ class DemoAggregate:
             demo_num=demo_num_0
         )
 
-        demo_0.chunk_path(switch_step_A=None, type_k="midpoint", pivot="closest_to_base")
+        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base")
 
         # demo_0.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_0.label_segments_from_k()
@@ -805,7 +819,7 @@ class DemoAggregate:
         # TODO: Instead of this call chunk_path (Want to plot the og demos anyways)
         # demo_1.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_1.label_segments_from_k()
-        demo_1.chunk_path(switch_step_A=None, type_k="midpoint", pivot="closest_to_base")
+        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base")
 
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
@@ -932,6 +946,8 @@ def main():
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
+    print("Hi")
+
     demos = DemoAggregate()
     
 
@@ -953,3 +969,5 @@ def main():
     demos.loop_through_ordering(ordering, group_name="artificial")
 
     
+
+main()
