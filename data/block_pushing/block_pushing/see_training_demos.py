@@ -5,7 +5,8 @@ import plot_training_demos as pu
 import numpy as np
 from scipy.spatial.distance import euclidean
 import subprocess
-
+import glob
+import re
 
 from scipy.spatial.distance import euclidean
 from scipy.optimize import linear_sum_assignment
@@ -1011,36 +1012,88 @@ class ModifyDemos:
         #     obs=new_obs[-1], demo_num=new_demo_num, coloring="artificial_labels"
         # )
 
-    def loop_through_ordering(self, ordering, custom_name="artificial"):
+    # def loop_through_ordering(self, ordering, group_name="artificial"):
+    #     """
+    #     Creates an animation "chunk-by-chunk" for each ordering in the list. Allows you to see the generated trajectory in sections. 
+        
+    #     Requires:
+    #         - demos object must already have labels (i.e label_segments_from_k() has been called)
+
+    #     """
+
+    #     for i in range(1, len(ordering)+1, 1):
+    #         sub_ordering = ordering[:i]
+    #         name = f"{sub_ordering[-1]}"
+    #         print("Subordering: ", sub_ordering)
+            
+    #         self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{group_name}_{i}_{name}")
+
+    #     # delete ouput.gif if it exists
+    #     if os.path.exists("output.mp4"):
+    #         os.remove("output.mp4")
+
+    #     subprocess.run([
+    #     "ffmpeg", "-framerate", "2", "-i", f"global_plots/{group_name}_%d.png",
+    #     "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
+    #     ])
+
+    #     # Apply palette and slow down frames
+    #     subprocess.run([
+    #         "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{group_name}_%d.png",
+    #         "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
+    #         "-loop", "0", "output.mp4"
+    #     ])
+
+    def loop_through_ordering(self, ordering, group_name="artificial"):
         """
         Creates an animation "chunk-by-chunk" for each ordering in the list. Allows you to see the generated trajectory in sections. 
-        
+
         Requires:
             - demos object must already have labels (i.e label_segments_from_k() has been called)
-
         """
 
-        for i in range(1, len(ordering)+1, 1):
+        for i in range(1, len(ordering) + 1):
             sub_ordering = ordering[:i]
-
+            name = f"{sub_ordering[-1]}"
             print("Subordering: ", sub_ordering)
-            self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{custom_name}_{i}")
+            
+            self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{group_name}_{i}_{name}")
 
-        # delete ouput.gif if it exists
+        # Delete existing output file if it exists
         if os.path.exists("output.mp4"):
             os.remove("output.mp4")
 
+        # Find all matching image files
+        files = glob.glob(f"global_plots/{group_name}_*_*.png")
+
+        # Extract frame numbers and sort files accordingly
+        def extract_frame_num(filename):
+            match = re.search(rf"{group_name}_(\d+)_.*\.png", filename)
+            return int(match.group(1)) if match else float("inf")
+
+        sorted_files = sorted(files, key=extract_frame_num)
+
+        # Create a temporary text file listing all the sorted images
+        list_file = "image_list.txt"
+        with open(list_file, "w") as f:
+            for file in sorted_files:
+                f.write(f"file '{file}'\n")
+
+        # Generate the palette
         subprocess.run([
-        "ffmpeg", "-framerate", "2", "-i", f"global_plots/{custom_name}_%d.png",
-        "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
-        ])
+            "ffmpeg", "-r", "2", "-f", "concat", "-safe", "0", "-i", list_file,
+            "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
+        ], check=True)
 
         # Apply palette and slow down frames
         subprocess.run([
-            "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{custom_name}_%d.png",
+            "ffmpeg", "-r", "1.5", "-f", "concat", "-safe", "0", "-i", list_file,
             "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
             "-loop", "0", "output.mp4"
-        ])
+        ], check=True)
+
+    
+
 
 def main():
 
@@ -1065,10 +1118,10 @@ def main():
     
     
     # Forward
-    ordering = order['forward']
+    ordering = order['demo0']
 
     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
-    demos.loop_through_ordering(ordering, custom_name="artificial")
+    demos.loop_through_ordering(ordering, group_name="artificial")
 
     
 
