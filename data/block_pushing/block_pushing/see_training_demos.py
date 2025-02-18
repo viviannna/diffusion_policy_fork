@@ -154,65 +154,10 @@ import numpy as np
 import os
 import shutil
 
-def reorder_observations_first_n(labels, obs, actions, n=470):
-    """
-    Utility function to reorder the first n timesteps according to a label map
-    and then concatenate the remainder. 
-    This is intentionally separate from the PathSegmenter class.
-    """
-    assert False
-
-    # I don't think any of this function gets used anymore. 
-
-    # 1) Slice out the first n items
-    labels_sub  = labels[:n]
-    obs_sub     = obs[:n]
-    actions_sub = actions[:n]
-
-    # The remainder that stays untouched
-    labels_rest  = labels[n:]
-    obs_rest     = obs[n:]
-    actions_rest = actions[n:]
-
-    # 2) Define label priorities
-    order_map = {
-        "path1_before_k":  0,
-        "path0_after_k":   1,
-        "path0_before_k":  2,
-        "path1_after_k":   3,
-    }
-    LOWEST_PRIORITY = 999
-
-    def get_sort_key(label):
-        # Unknown labels => 999, so they end up at the back (but preserve relative order).
-        return order_map.get(label, LOWEST_PRIORITY)
-
-    # 3) Zip the sub-block so we can sort them together.
-    zipped_sub = list(zip(labels_sub, obs_sub, actions_sub))
-    # Sort by label priority
-    zipped_sub_sorted = sorted(zipped_sub, key=lambda x: get_sort_key(x[0]))
-    # Unzip back into separate sequences
-    labels_sub_sorted, obs_sub_sorted, actions_sub_sorted = zip(*zipped_sub_sorted)
-
-    # 4) Convert obs_sub_sorted / actions_sub_sorted to NumPy arrays if needed
-    obs_sub_sorted     = np.array(obs_sub_sorted)
-    actions_sub_sorted = np.array(actions_sub_sorted)
-
-    # 5) Concatenate sorted sub-block with remainder along axis=0
-    obs_concat     = np.concatenate([obs_sub_sorted, obs_rest], axis=0)
-    actions_concat = np.concatenate([actions_sub_sorted, actions_rest], axis=0)
-
-    # 6) Convert them back to lists or keep them as arrays
-    new_labels  = list(labels_sub_sorted) + labels_rest
-    new_obs     = obs_concat.tolist()
-    new_actions = actions_concat.tolist()
-
-    return new_labels, new_obs, new_actions
-
 # ------------------------------------------------------------------
-# PathSegmenter: Analyzing and Modifying Effector Trajectories
+# Demo: Analyzing and Modifying Effector Trajectories
 # ------------------------------------------------------------------
-# The PathSegmenter class processes the trajectory of a demonstration 
+# The Demo class processes the trajectory of a demonstration 
 # (from start_timestep to end_timestep) using observation and action 
 # dictionaries. It is designed to:
 #
@@ -231,7 +176,7 @@ def reorder_observations_first_n(labels, obs, actions, n=470):
 # ------------------------------------------------------------------
 
 
-class PathSegmenter:
+class Demo:
     def __init__(self, obs, action, start_timestep, end_timestep, demo_num):
         """
         Initialize with required data and parameters.
@@ -249,7 +194,7 @@ class PathSegmenter:
         self.both_blocks = None
 
         # If you have a special "switch step" concept
-        self.switch_step_k = None
+        self.switch_step_A = None
 
         # This will be populated by label_segments_from_k()
         self.labels = None
@@ -361,7 +306,7 @@ class PathSegmenter:
                 if cumulative_distance >= half_distance:
 
                     # Remember that switch step always be relative to zero 
-                    self.switch_step_k = (step - self.start_timestep) + 1
+                    self.switch_step_A = (step - self.start_timestep) + 1
                     break
             
             
@@ -370,7 +315,7 @@ class PathSegmenter:
             # This calculates it by picking the middle time step 
             # earliest = min(self.first_touch_0, self.first_touch_1)
             # distance_between_first_touch = earliest - self.start_timestep 
-            # self.switch_step_k = (distance_between_first_touch // 2)
+            # self.switch_step_A = (distance_between_first_touch // 2)
 
             # I think instead we should just pick the point closest to the middle distance travelled -- I don't think that I really need to track the actual trajectory taken (I hope..?)
 
@@ -386,7 +331,7 @@ class PathSegmenter:
 
         print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
               f"one_block={self.one_block}, pivot={self.pivot_point}, "
-              f"both_blocks={self.both_blocks}", f"switch_step_k={self.switch_step_k}")
+              f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}")
         
         # Set the value of k to be the midpoint between one_block and both_blocks
 
@@ -395,30 +340,26 @@ class PathSegmenter:
         """
         Label each timestep between start_timestep and end_timestep as belonging to
         one of the 'path0' or 'path1' segments, specifically marking whether
-        it comes before/at/after the switch_step_k.
+        it comes before/at/after the switch_step_A.
 
         This stores all labels in self.labels.
         """
 
-        # if any(x is None for x in [self.no_blocks, self.one_block, self.both_blocks, self.pivot_point]):
-        #     raise RuntimeError("Pivot points have not been calculated yet. "
-        #                        "Call calculate_key_points() first.")
+        # Create a label array for the entire dataset length. We'll fill only the relevant range. NOTE: Look into this... 
 
-        # Create a label array for the entire dataset length. We'll fill only the relevant range.
-
-        assert self.switch_step_k is not None
+        assert self.switch_step_A is not None
 
         self.labels = [''] * len(self.obs)
 
         for step in range(self.start_timestep, self.end_timestep + 1):
-            if self.no_blocks <= step <= (self.switch_step_k + self.start_timestep):
+            if self.no_blocks <= step <= (self.switch_step_A + self.start_timestep):
                 self.labels[step] = 'pathA_before_k'
-            elif (self.switch_step_k + self.start_timestep) < step <= self.pivot_point:
+            elif (self.switch_step_A + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
             
-            if self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
+            if self.pivot_point < step <= (self.pivot_point + self.switch_step_A):
                 self.labels[step] = 'pathB_before_k'
-            elif (self.pivot_point + self.switch_step_k) < step <= self.end_timestep:
+            elif (self.pivot_point + self.switch_step_A) < step <= self.end_timestep:
                 self.labels[step] = 'pathB_after_k'
             else:
                 pass  # If there's some gap or off-by-one, handle or assert as needed.
@@ -491,7 +432,7 @@ class PathSegmenter:
 
     def color_code_at_k(self):
         """
-        Colors the path with respect to `switch_step_k`, using colors based on labels.
+        Colors the path with respect to `switch_step_A`, using colors based on labels.
 
         This function assumes `self.labels` is already populated by `label_segments_from_k()`.
         It uses a dictionary `label_color_dict` where keys are labels and values are their corresponding colors.
@@ -499,7 +440,7 @@ class PathSegmenter:
         Args:
             label_color_dict (dict): Mapping of labels (from `label_segments_from_k`) to colors.
         """
-        assert self.switch_step_k is not None
+        assert self.switch_step_A is not None
         assert self.pivot_point is not None
         assert self.labels is not None
 
@@ -508,7 +449,7 @@ class PathSegmenter:
             'pathA_after_k': 'orange',
             'pathB_before_k': 'blue',
             'pathB_after_k': 'purple',
-            'switch_step_k': 'cyan',
+            'switch_step_A': 'cyan',
         }
 
         for step in range(self.start_timestep, self.end_timestep + 1):
@@ -526,8 +467,8 @@ class PathSegmenter:
             label = self.labels[step]
 
             # Handle special cases for colors
-            if step == self.switch_step_k + self.start_timestep or step == self.pivot_point + self.switch_step_k:
-                color = label_color_dict.get('switch_step_k', 'gray')
+            if step == self.switch_step_A + self.start_timestep or step == self.pivot_point + self.switch_step_A:
+                color = label_color_dict.get('switch_step_A', 'gray')
             else:
                 color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
 
@@ -545,7 +486,7 @@ class PathSegmenter:
     # are plotted in the color-coding methods.)
     # ------------------------------------------------------------------
 
-    def chunk_path(self, switch_step_k=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None):
+    def chunk_path(self, switch_step_A=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None):
         """
         Convenience method that for a single demonstration:
         - Initializes the global plot
@@ -555,7 +496,7 @@ class PathSegmenter:
         - Plots the final state of the environment
 
         Parameters:
-            switch_step_k: If not none, fixes the switch step to a specific value.
+            switch_step_A: If not none, fixes the switch step to a specific value.
             type_k: How k should be calculated. Options are {"fixed", "midpoint", "heuristic_middle"}
             pivot: How the pivot point should be calculated. Options are {"midpoint", "closest_to_base"}
             dist: If not None, labels the distance from this environment to the target environment.
@@ -570,11 +511,11 @@ class PathSegmenter:
         self.calculate_key_points(pivot=pivot, type_k=type_k)
 
         if type_k == "fixed":
-            self.switch_step_k = switch_step_k
+            self.switch_step_A = switch_step_A
 
-        # if switch_step_k is not None:
-        #     switch_step_k = self.midpoint
-        #     self.label_segments_from_k(switch_step_k)
+        # if switch_step_A is not None:
+        #     switch_step_A = self.midpoint
+        #     self.label_segments_from_k(switch_step_A)
         self.label_segments_from_k()
         self.color_code_at_k()
         # self.color_code_3_segments()
@@ -630,9 +571,9 @@ class PathSegmenter:
 
 
 # ------------------------------------------------------------------
-# ModifyDemos: Global Analysis and Comparison of Demonstrations
+# DemoAggregate: Global Analysis and Comparison of Demonstrations
 # ------------------------------------------------------------------
-# The ModifyDemos class provides a global perspective on multiple 
+# The DemoAggregate class provides a global perspective on multiple 
 # demonstrations, allowing for the comparison and inspection of 
 # environments relative to a chosen target demonstration.
 #
@@ -647,7 +588,7 @@ class PathSegmenter:
 # - Finds the closest environments to a target demo based on spatial 
 #   similarity, allowing for structured comparisons.
 # - Facilitates visualization and segmentation of trajectories using 
-#   the PathSegmenter class, enabling deeper insights into trajectory 
+#   the Demo class, enabling deeper insights into trajectory 
 #   differences.
 #
 # This class is essential for understanding variations between 
@@ -655,7 +596,7 @@ class PathSegmenter:
 # identifying key differences in effector behavior across tasks.
 # ------------------------------------------------------------------
 
-class ModifyDemos:
+class DemoAggregate:
     def __init__(self, mode='abs'):
         """
         Open the desired zarr dataset. Store observations/actions for further use.
@@ -807,7 +748,7 @@ class ModifyDemos:
         """
         Demonstrates how to:
           1) Grab the target env and its closest demos.
-          2) Instantiate PathSegmenter for each one.
+          2) Instantiate Demo for each one.
           3) Plot/label the path with chunk_path or any other method.
         """
 
@@ -819,36 +760,6 @@ class ModifyDemos:
         print(f"\n--- Target Environment: Demo {target_env_data['demo_idx']} ---")
         print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
 
-        # ========================================
-        # # 1) Plot the target demonstration
-        # seg_target = PathSegmenter(
-        #     obs=self.obs,
-        #     action=self.action,
-        #     start_timestep=target_env_data['start_timestep'],
-        #     end_timestep=target_env_data['end_timestep'],
-        #     demo_num=target_env_data['demo_idx']
-        # )
-        # # You can pick any method or color coding you like here:
-        # labels = seg_target.chunk_path(switch_step_k=None, type_k="midpoint")
-
-        # # 2) Now, do the same for each closest environment
-        # print(f"\n--- Closest Environments to Demo {target_demo} ---")
-        # for env_data in closest_envs:
-        #     print(f"Demo {env_data['demo_idx']} "
-        #           f"(start={env_data['start_timestep']}, end={env_data['end_timestep']}) "
-        #           f"is {env_data['distance']:.3f} away.")
-
-        #     seg_closest = PathSegmenter(
-        #         obs=self.obs,
-        #         action=self.action,
-        #         start_timestep=env_data['start_timestep'],
-        #         end_timestep=env_data['end_timestep'],
-        #         demo_num=env_data['demo_idx']
-        #     )
-        #     # Provide distance & target_num so it can annotate if needed
-        #     seg_closest.chunk_path(switch_step_k=None, type_k="midpoint", dist=env_data['distance'], target_num=target_demo)
-        
-        # ========================================
 
     def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None):
         """
@@ -869,7 +780,7 @@ class ModifyDemos:
         demo_num_1 = EPISODE_STARTS.index(start_1)
 
         # Extract first demonstration
-        demo_0 = PathSegmenter(
+        demo_0 = Demo(
             obs=self.obs,                  # (114962, 16)
             action=self.action,            # (114962, 2)
             start_timestep=start_0,
@@ -877,13 +788,13 @@ class ModifyDemos:
             demo_num=demo_num_0
         )
 
-        demo_0.chunk_path(switch_step_k=None, type_k="midpoint", pivot="closest_to_base")
+        demo_0.chunk_path(switch_step_A=None, type_k="midpoint", pivot="closest_to_base")
 
         # demo_0.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_0.label_segments_from_k()
 
         # Extract second demonstration
-        demo_1 = PathSegmenter(
+        demo_1 = Demo(
             obs=self.obs,
             action=self.action,
             start_timestep=start_1,
@@ -894,7 +805,7 @@ class ModifyDemos:
         # TODO: Instead of this call chunk_path (Want to plot the og demos anyways)
         # demo_1.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_1.label_segments_from_k()
-        demo_1.chunk_path(switch_step_k=None, type_k="midpoint", pivot="closest_to_base")
+        demo_1.chunk_path(switch_step_A=None, type_k="midpoint", pivot="closest_to_base")
 
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
@@ -954,7 +865,7 @@ class ModifyDemos:
 
         # Process the new artificial demo
         new_demo_num = len(EPISODE_STARTS)
-        artificial_demo = PathSegmenter(
+        artificial_demo = Demo(
             obs=self.obs,              # (115113, 16)
             action=self.action,        # (115113, 2)
             start_timestep=new_demo_start,
@@ -963,46 +874,6 @@ class ModifyDemos:
         )
 
         artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
-
-        # artificial_segmenter.artificial_label_segments_from_k()
-        # artificial_segmenter.color_code_at_k()
-
-        # # Finalize visualization
-        # pu.finalize_full_trajectory_plot(
-        #     obs=new_obs[-1], demo_num=new_demo_num, coloring="artificial_labels"
-        # )
-
-    # def loop_through_ordering(self, ordering, group_name="artificial"):
-    #     """
-    #     Creates an animation "chunk-by-chunk" for each ordering in the list. Allows you to see the generated trajectory in sections. 
-        
-    #     Requires:
-    #         - demos object must already have labels (i.e label_segments_from_k() has been called)
-
-    #     """
-
-    #     for i in range(1, len(ordering)+1, 1):
-    #         sub_ordering = ordering[:i]
-    #         name = f"{sub_ordering[-1]}"
-    #         print("Subordering: ", sub_ordering)
-            
-    #         self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{group_name}_{i}_{name}")
-
-    #     # delete ouput.gif if it exists
-    #     if os.path.exists("output.mp4"):
-    #         os.remove("output.mp4")
-
-    #     subprocess.run([
-    #     "ffmpeg", "-framerate", "2", "-i", f"global_plots/{group_name}_%d.png",
-    #     "-vf", "scale=1000:-1:flags=lanczos,palettegen", "-y", "palette.png"
-    #     ])
-
-    #     # Apply palette and slow down frames
-    #     subprocess.run([
-    #         "ffmpeg", "-framerate", "1.5", "-i", f"global_plots/{group_name}_%d.png",
-    #         "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
-    #         "-loop", "0", "output.mp4"
-    #     ])
 
     def loop_through_ordering(self, ordering, group_name="artificial"):
         """
@@ -1052,8 +923,6 @@ class ModifyDemos:
             "-loop", "0", "output.mp4"
         ], check=True)
 
-    
-
 
 def main():
 
@@ -1063,7 +932,7 @@ def main():
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
-    demos = ModifyDemos()
+    demos = DemoAggregate()
     
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
@@ -1084,39 +953,3 @@ def main():
     demos.loop_through_ordering(ordering, group_name="artificial")
 
     
-
-
-
-
-
-    # demos.print_closest_envs(target_demo=0, num_demos=3)
-
-
-    # print(os.getcwd())
-    # zarr_abs = zarr.open("multimodal_push_seed_abs.zarr", mode='r')
-    # zarr_rel = zarr.open("multimodal_push_seed.zarr", mode='r')
-
-    # obs = zarr_rel['data']['obs']
-    # action = zarr_abs['data']['action']
-
-    # if os.path.exists('global_plots'):
-    #     shutil.rmtree('global_plots')
-    #     os.makedirs('global_plots')
-
-
-    # for demo_num in range(1):
-    #     start_timestep = EPISODE_STARTS[demo_num]
-    #     end_timestep = EPISODE_STARTS[demo_num+1] -1
-
-    #     print(f"Demo {demo_num}: {start_timestep} to {end_timestep}")
-
-    #     segmenter = PathSegmenter(obs, action, start_timestep, end_timestep, demo_num)
-    #     segmenter.chunk_path(switch_step_k=10)
-
-    
-
-if __name__ == "__main__":
-    main()
-
-
-
