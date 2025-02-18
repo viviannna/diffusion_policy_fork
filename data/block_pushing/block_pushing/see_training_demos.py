@@ -409,18 +409,11 @@ class PathSegmenter:
 
         self.labels = [''] * len(self.obs)
 
-        # HARD_CODE_SWITCH_STEP_K_0_669 = 1
-        # HARD_CODE_SWITCH_STEP_K_1_669 = 6
-
-        # HARD_CODE_SWITCH_STEP_K_0_0 = 5
-        # HARD_CODE_SWITCH_STEP_K_1_0 = 3
-
         for step in range(self.start_timestep, self.end_timestep + 1):
             if self.no_blocks <= step <= (self.switch_step_k + self.start_timestep):
                 self.labels[step] = 'pathA_before_k'
             elif (self.switch_step_k + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
-            
             
             if self.pivot_point < step <= (self.pivot_point + self.switch_step_k):
                 self.labels[step] = 'pathB_before_k'
@@ -508,18 +501,6 @@ class PathSegmenter:
         
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_action = self.action[step]
-
-
-            HARD_CODE_SWITCH_STEP_K_0_669 = 1
-            HARD_CODE_SWITCH_STEP_K_1_669 = 6
-
-            HARD_CODE_SWITCH_STEP_K_0_0 = 5
-            HARD_CODE_SWITCH_STEP_K_1_0 = 3
-            if self.demo_num == 669:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_669
-            elif self.demo_num == 0:
-                self.switch_step_k = HARD_CODE_SWITCH_STEP_K_0_0
-
 
             if step == self.first_touch_0:
                 print(f"First touch 0 at {step}")
