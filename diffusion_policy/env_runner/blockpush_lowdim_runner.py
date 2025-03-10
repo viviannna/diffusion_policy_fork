@@ -28,8 +28,6 @@ matplotlib.use('Agg')
 
 import diffusion_policy.policy.utils.plotting_utils as pu
 
-
-
 global global_translate, global_translation_angle, global_translation_distance
 
 global_translate = False
