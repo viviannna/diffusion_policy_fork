@@ -10,6 +10,7 @@ from diffusion_policy.env.block_pushing.block_pushing_multimodal import BlockPus
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrapper, VideoRecorder
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from gym.wrappers import FlattenObservation
+import json
 
 # Define paths
 # create path relative to this file
@@ -44,7 +45,7 @@ num_steps = end_timestep - start_timestep
 # NOTE: For now, I am copying the entire obs and actions arrays. This is not ideal, but I am doing it to avoid modifying the original zarr inputs for now. 
 current_demo ={
     # Reshape to be per step, per batch, per obs, two observations (x,y)
-    'obs': (obs[start_timestep:end_timestep].copy()).reshape(num_steps, 1, 1, 16),
+    'obs': (obs[start_timestep:end_timestep].copy()),
     # Reshape to for this one demo, per step, per batch, per action, 16 fields (104, 1, 1, 2)
     'actions': (actions[start_timestep:end_timestep].copy()).reshape(num_steps, 1, 1, 2),
     'demo_num': demo_num
@@ -100,8 +101,29 @@ os.mkdir(output_dir)
 # Initialize environment
 env = env_fn()
 
+init_obs = current_demo['obs'][0]
+
+# NOTE: Temporary solution to pass the initial observation. Too many function signatures to change. 
+
+INIT_OBS_FILE = os.path.join(os.path.dirname(__file__), "../env/block_pushing/init_obs.json")
+
+# We should start by deleting the file
+if os.path.exists(INIT_OBS_FILE):
+    os.remove(INIT_OBS_FILE)
+
+def save_init_obs(init_obs):
+    # Convert to a list so it can be saved in JSON format
+    with open(INIT_OBS_FILE, "w") as f:
+        json.dump(init_obs.tolist(), f)
+
+    print(f"Saved initial observation to {INIT_OBS_FILE}")
+
+save_init_obs(init_obs)
+
+
 # Want to hard wire the environmnet 
 obs = env.reset()
+# TODO: pass init obs all the way down. 
 
 # Run the environment using reshaped actions
 for step in range(num_steps):
