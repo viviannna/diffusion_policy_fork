@@ -11,8 +11,14 @@ import re
 from scipy.spatial.distance import euclidean
 from scipy.optimize import linear_sum_assignment
 import numpy as np
+import sys
+
+from diffusion_policy.env.block_pushing.block_pushing_multimodal import BlockPushMultimodal
+
+from diffusion_policy.env_runner import custom_runner
 
 global EPISODE_STARTS 
+
 
 # 1,001 demonstrations (root['meta']['EPISODE_STARTS'])
 # This is actually really a list of inclusive starts.
@@ -616,11 +622,11 @@ class DemoAggregate:
         Open the desired zarr dataset. Store observations/actions for further use.
         """
         if mode == 'abs':
-            self.zarr_abs = zarr.open("multimodal_push_seed_abs.zarr", mode='r')
+            self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r')
             self.obs = self.zarr_abs['data']['obs']
             self.action = self.zarr_abs['data']['action']
         elif mode == 'rel':
-            self.zarr_rel = zarr.open("multimodal_push_seed.zarr", mode='r')
+            self.zarr_rel = zarr.open("data/block_pushing/multimodal_push_seed.zarr", mode='r')
             self.obs = self.zarr_rel['data']['obs']
             self.action = self.zarr_rel['data']['action']
         else:
@@ -862,10 +868,6 @@ class DemoAggregate:
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
 
-        # Dynamically construct the new trajectory
-        new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
-        new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
-
         # Append the new demo to obs and action datasets
         self.obs = np.concatenate([self.obs, new_obs], axis=0)
         self.action = np.concatenate([self.action, new_action], axis=0)
@@ -946,8 +948,6 @@ def main():
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
-    print("Hi")
-
     demos = DemoAggregate()
     
 
@@ -968,6 +968,7 @@ def main():
     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
     demos.loop_through_ordering(ordering, group_name="artificial")
 
-    
+    # NOTE: Good, the artificial demos aren't actually added to the zarr file. So we can test them before actually adding them to the training set. 
+     
 
 main()
