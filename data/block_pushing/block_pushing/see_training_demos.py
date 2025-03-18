@@ -977,10 +977,10 @@ class DemoAggregate:
         new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
-        if run_source_demos:
-            final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}")
+       
+        final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}")
 
-            (obs, reward, done, info) = final_status
+        (obs, reward, done, info) = final_status
 
             # dump final status into a file?
             # with open("global_plots/final_status.txt", "w") as f:
@@ -994,32 +994,32 @@ class DemoAggregate:
             #     f.write("Info:")
             #     f.write(f"{info}\n")
                 # f.write(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
-            return reward >= 0.5
+        return reward >= 0.5
 
         # NOTE: All below this line should really only be done if the reward is above a certain threshold.
         # Append the new demo to obs and action datasets
-        # if reward >= 0.5:
+        if reward >= 0.5 and run_source_demos:
 
-        # self.obs = np.concatenate([self.obs, new_obs], axis=0)
-        # self.action = np.concatenate([self.action, new_action], axis=0)
+            self.obs = np.concatenate([self.obs, new_obs], axis=0)
+            self.action = np.concatenate([self.action, new_action], axis=0)
 
-        # # Update EPISODE_STARTS with the new demo start
-        # new_demo_start = EPISODE_STARTS[-1] 
-        # new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
-        # EPISODE_STARTS.append(new_demo_end + 1)
+            # Update EPISODE_STARTS with the new demo start
+            new_demo_start = EPISODE_STARTS[-1] 
+            new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
+            EPISODE_STARTS.append(new_demo_end + 1)
 
-        # # Process the new artificial demo
-        # new_demo_num = len(EPISODE_STARTS)
-        # artificial_demo = Demo(
-        #     obs=self.obs,              # (num_steps, 16)
-        #     action=self.action,        # (num_steps, 2)
-        #     start_timestep=new_demo_start,
-        #     end_timestep=new_demo_end,      # Needs to be one less than the actual end 
-        #     demo_num=new_demo_num
-        # )
-        # # TODO: Don't need to plot when creating the demonstrations at scale. 
+            # Process the new artificial demo
+            new_demo_num = len(EPISODE_STARTS)
+            artificial_demo = Demo(
+                obs=self.obs,              # (num_steps, 16)
+                action=self.action,        # (num_steps, 2)
+                start_timestep=new_demo_start,
+                end_timestep=new_demo_end,      # Needs to be one less than the actual end 
+                demo_num=new_demo_num
+            )
+            # TODO: Don't need to plot when creating the demonstrations at scale. 
 
-        # artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
+            artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
         
        
 
@@ -1113,14 +1113,14 @@ def main():
             start_1 = EPISODE_STARTS[demo_num_1]
 
             ordering = order['forward']
-            forward_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_source_demos=True)
+            forward_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_source_demos=False)
             if forward_worked:
                 print(f"For demo {d}, forward worked")
             total_successful += int(forward_worked)
 
             ordering = order['reverse']
             reverse_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
-            custom_file_name=f"predicted_artificial", run_source_demos=True)
+            custom_file_name=f"predicted_artificial", run_source_demos=False)
             if reverse_worked:
                 print(f"For demo {d}, reverse worked")
 
@@ -1128,7 +1128,7 @@ def main():
 
             # Update progress bar
             pbar.update(1)
-            print(f"Total successful: {total_successful}/{total_num_demos * 2}")
+            print(f"Total successful: {total_successful}/{(d+1) * 2}")
 
     print(f"Total successful: {total_successful}/{total_num_demos * 2}")
 
