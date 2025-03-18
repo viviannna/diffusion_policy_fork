@@ -76,7 +76,10 @@ def extract_effector_position(obs_after):
     """
     Extracts effector position from observation data.
     """
-    effector = {'x': obs_after[6], 'y': obs_after[7]}
+    if len(obs_after) == 2:
+        effector = {'x': obs_after[0], 'y': obs_after[1]}
+    else:
+        effector = {'x': obs_after[6], 'y': obs_after[7]}
     return effector
 
 def get_blocks_to_target_distance(obs_after):

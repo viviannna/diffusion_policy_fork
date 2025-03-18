@@ -218,10 +218,6 @@ class Demo:
             self.switch_step_A, self.switch_step_B = switch_step_k
 
         elif type_k == "midpoint":
-     
-
-            # assert self.first_touch_A == min(self.first_touch_A, self.first_touch_B)
-            # assert self.first_touch_B == max(self.first_touch_A, self.first_touch_B)
 
             first_touched = min(self.first_touch_0, self.first_touch_1)
             second_touched = max(self.first_touch_0, self.first_touch_1)
@@ -231,16 +227,24 @@ class Demo:
             total_distance = 0
 
             for step in range(self.start_timestep, first_touched + 1):
-                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                
+                if step == 0: 
+                    step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
+                else:
+                    step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                # print(f"Moved from ({self.obs[step-1][6]}, {self.obs[step-1][7]}) to ({self.obs[step][6]}, {self.obs[step][7]}). Traveled {step_distance} units.")
                 total_distance += step_distance
             
             half_distance = total_distance / 2  # Midpoint in terms of distance
             cumulative_distance = 0
 
+
             for step in range(self.start_timestep, first_touched + 1):
-                step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                if step == 0: 
+                    step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
+                else:
+                    step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance += step_distance
-                
                 if cumulative_distance >= half_distance:
                     # switch_step_A is relative to zero
                     self.switch_step_A = (step - self.start_timestep)
@@ -251,14 +255,20 @@ class Demo:
             total_distance_B = 0
 
             for step in range(self.pivot_point, second_touched + 1):
-                step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                if step == 0: 
+                    step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
+                else:
+                    step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 total_distance_B += step_distance_B
 
             half_distance_B = total_distance_B / 2  # Midpoint in terms of distance for block B
             cumulative_distance_B = 0
 
             for step in range(self.pivot_point, second_touched + 1):
-                step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                if step == 0: 
+                    step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
+                else:
+                    step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance_B += step_distance_B
 
                 if cumulative_distance_B >= half_distance_B:
@@ -272,6 +282,9 @@ class Demo:
     def set_pivot(self, pivot_type="midpoint"):
         """
         Set the pivot point based on the type of pivot specified.
+
+        - midpoint: Pivot is the exact in between step between one_block and both_blocks
+        - closest_to_base: Pivot is the step closest to the base position on the return path. 
         """
 
         assert self.one_block is not None and self.both_blocks is not None, "Must set one_block and both_blocks first."
@@ -545,7 +558,6 @@ class Demo:
         self.label_segments_from_k()
         self.color_code_at_k()
     
-
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
 
@@ -742,7 +754,7 @@ class DemoAggregate:
         distances.sort(key=lambda d: d['distance'])
         return distances
 
-    def get_closest_envs(self, target_demo=0, num_demos=None, method='rms'):
+    def get_closest_envs(self, target_demo_num=0, num_demos=None, method='rms'):
         """
         Return:
             - The target environment data (dict)
@@ -752,7 +764,7 @@ class DemoAggregate:
         all_envs = self.get_all_environments()
 
         # Extract the one we want as target
-        target_env_data = all_envs.pop(target_demo)
+        target_env_data = all_envs.pop(target_demo_num)
 
         # Now find the closest ones
         sorted_by_dist = self.find_closest_envs(target_env_data, all_envs, method=method)
@@ -764,9 +776,10 @@ class DemoAggregate:
 
 
 
-    def print_closest_envs(self, target_demo=0, num_demos=3):
+    def print_closest_envs(self, target_demo_num=0, num_demos=3):
+
         """
-        Demonstrates how to:
+        For a given target demonstration, finds the num_demo closest demonstrations.
           1) Grab the target env and its closest demos.
           2) Instantiate Demo for each one.
           3) Plot/label the path with chunk_path or any other method.
@@ -775,10 +788,15 @@ class DemoAggregate:
         
 
         # Get the target environment data and the closest few
-        target_env_data, closest_envs = self.get_closest_envs(target_demo, num_demos)
+        target_env_data, closest_envs = self.get_closest_envs(target_demo_num, num_demos)
 
         print(f"\n--- Target Environment: Demo {target_env_data['demo_idx']} ---")
         print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
+
+        for i in range(len(closest_envs)):
+            env_data = closest_envs[i]
+            print(f"\n--- Closest Environment {i+1}: Demo {env_data['demo_idx']} ---")
+            print(f"Start={env_data['start_timestep']}, End={env_data['end_timestep']}, Distance={env_data['distance']:.2f}")
 
 
     def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, run_sub_demos=False):
@@ -888,6 +906,7 @@ class DemoAggregate:
 
         if run_sub_demos:
             final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
+
             (obs, reward, done, info) = final_status
 
 
@@ -987,6 +1006,9 @@ def main():
     os.makedirs("global_plots", exist_ok=True)
 
     demos = DemoAggregate()
+    demos.print_closest_envs(target_demo_num=0, num_demos=3)
+
+
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
@@ -1000,7 +1022,7 @@ def main():
     
     
     # Forward
-    ordering = order['reverse']
+    ordering = order['forward']
 
     # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
     demo_num_0 = 0

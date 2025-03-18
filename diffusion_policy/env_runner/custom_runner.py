@@ -170,11 +170,10 @@ crf = 22
 steps_per_render = max(10 // fps, 1)  # Control rendering rate
 seed = 42
 abs_action = True
-max_steps = 104  # Set max episode steps to 104
 output_dir = "sim_videos"
 
 
-def env_fn(video_name):
+def env_fn(video_name, max_steps):
     """Creates the environment with video recording"""
     return MultiStepWrapper(
         VideoRecordingWrapper(
@@ -235,7 +234,7 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
     }
 
     # Initialize environment
-    env = env_fn(video_name)
+    env = env_fn(video_name, num_steps)
     
 
     # Set and save the initial observation
@@ -252,7 +251,11 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
     # TODO: new
 
     # Run the environment using preloaded action
-    for step in range(num_steps):
+    done = False
+    step = 0
+    # for step in range(num_steps):
+    while not done:
+        
         batch = 0
         curr_action = current_demo['action'][step][batch]  # Shape: (1, 1, 2)
         # curr_obs = current_demo['obs'][step][batch]  # Shape: (1, obs_dim) Never needed since we're doing rollout.
@@ -272,6 +275,9 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
             if done and step == num_steps - 1 and reward != 1:
                 print("Failed to reach goal")
             break
+
+        
+        step += 1
 
     
     pu.finalize_full_trajectory_plot(obs=obs[0], demo_num=demo_num, coloring='gradient', custom_file_name="actual_artificial")
