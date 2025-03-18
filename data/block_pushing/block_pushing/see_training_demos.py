@@ -781,9 +781,9 @@ class DemoAggregate:
         print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
 
 
-    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None):
+    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, run_sub_demos=False):
         """
-        Creates a new artificial trajectory by extracting segments from two demos and arranging them based on `ordering`.
+        Creates a new artificial trajectory by extracting segments from two demos and arranging them based on ordering.
 
         Arguments:
         - start_0: int, start timestep of first demonstration
@@ -799,6 +799,15 @@ class DemoAggregate:
         demo_num_0 = EPISODE_STARTS.index(start_0)
         demo_num_1 = EPISODE_STARTS.index(start_1)
 
+
+        print(f"Creating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
+
+        # Delete sim_videos 
+        if run_sub_demos:
+            if os.path.exists("sim_videos"):
+                shutil.rmtree("sim_videos")
+            os.makedirs("sim_videos")
+
         # Extract first demonstration
         demo_0 = Demo(
             obs=self.obs,                  # (114962, 16)
@@ -809,6 +818,12 @@ class DemoAggregate:
         )
 
         demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base")
+
+        if run_sub_demos:
+            custom_runner.run_demo(obs_dict=demo_0.obs[demo_0.start_timestep:demo_0.end_timestep+1], action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
+
+
+        # custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
 
         # demo_0.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
         # demo_0.label_segments_from_k()
@@ -821,6 +836,10 @@ class DemoAggregate:
             end_timestep=end_1,
             demo_num=demo_num_1
         )
+
+        # Trying to record the original demonstration
+        if run_sub_demos:
+            custom_runner.run_demo(obs_dict=demo_1.obs[demo_1.start_timestep:demo_1.end_timestep+1], action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
 
         # TODO: Instead of this call chunk_path (Want to plot the og demos anyways)
         # demo_1.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
@@ -867,8 +886,28 @@ class DemoAggregate:
         new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
+        if run_sub_demos:
+            final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
+            (obs, reward, done, info) = final_status
 
+
+            # dump final status into a file?
+            with open("global_plots/final_status.txt", "w") as f:
+                f.write(f"Artificial trajectory created from demos {demo_num_0} and {demo_num_1} with ordering {ordering}\n")
+                f.write("Obs:")
+                f.write(f"{obs}\n")
+                f.write("Reward:")
+                f.write(f"{reward}\n")
+                f.write("Done:")
+                f.write(f"{done}\n")
+                f.write("Info:")
+                f.write(f"{info}\n")
+                # f.write(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
+
+        # NOTE: All below this line should really only be done if the reward is above a certain threshold.
         # Append the new demo to obs and action datasets
+        # if reward >= 0.5:
+
         self.obs = np.concatenate([self.obs, new_obs], axis=0)
         self.action = np.concatenate([self.action, new_action], axis=0)
 
@@ -877,17 +916,16 @@ class DemoAggregate:
         new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
         EPISODE_STARTS.append(new_demo_end + 1)
 
-        # len(self.action) = 115113. so we can only access up to 115112
-
         # Process the new artificial demo
         new_demo_num = len(EPISODE_STARTS)
         artificial_demo = Demo(
-            obs=self.obs,              # (115113, 16)
-            action=self.action,        # (115113, 2)
+            obs=self.obs,              # (num_steps, 16)
+            action=self.action,        # (num_steps, 2)
             start_timestep=new_demo_start,
             end_timestep=new_demo_end,      # Needs to be one less than the actual end 
             demo_num=new_demo_num
         )
+        # TODO: Don't need to plot when creating the demonstrations at scale. 
 
         artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
 
@@ -903,12 +941,12 @@ class DemoAggregate:
             sub_ordering = ordering[:i]
             name = f"{sub_ordering[-1]}"
             print("Subordering: ", sub_ordering)
-            
+        
             self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{group_name}_{i}_{name}")
 
         # Delete existing output file if it exists
-        if os.path.exists("output.mp4"):
-            os.remove("output.mp4")
+        if os.path.exists("global_plots/predicted_artificial_steps.mp4"):
+            os.remove("global_plots/predicted_artificial_steps.mp4")
 
         # Find all matching image files
         files = glob.glob(f"global_plots/{group_name}_*_*.png")
@@ -936,7 +974,7 @@ class DemoAggregate:
         subprocess.run([
             "ffmpeg", "-r", "1.5", "-f", "concat", "-safe", "0", "-i", list_file,
             "-i", "palette.png", "-lavfi", "scale=1000:-1:flags=lanczos [x]; [x][1:v] paletteuse",
-            "-loop", "0", "output.mp4"
+            "-loop", "0", "global_plots/predicted_artificial_steps.mp4"
         ], check=True)
 
 
@@ -949,7 +987,6 @@ def main():
     os.makedirs("global_plots", exist_ok=True)
 
     demos = DemoAggregate()
-    
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
@@ -963,9 +1000,17 @@ def main():
     
     
     # Forward
-    ordering = order['demo0']
+    ordering = order['reverse']
 
-    demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
+    # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
+    demo_num_0 = 0
+    demo_num_1 = 669
+
+    start_0 = EPISODE_STARTS[demo_num_0]
+    start_1 = EPISODE_STARTS[demo_num_1]
+    
+
+    demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_sub_demos=True)
     demos.loop_through_ordering(ordering, group_name="artificial")
 
     # NOTE: Good, the artificial demos aren't actually added to the zarr file. So we can test them before actually adding them to the training set. 
