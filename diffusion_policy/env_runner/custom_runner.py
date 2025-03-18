@@ -241,7 +241,7 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
     init_obs = current_demo['obs'][0]
     save_init_obs(init_obs)
     demo_num = hash(video_name)
-    pu.setup_full_trajectory_plot(init_obs, demo_num) # Just hashed because I don't want to keep making a new number. 
+    # pu.setup_full_trajectory_plot(init_obs, demo_num) # Just hashed because I don't want to keep making a new number. 
 
     # Reset environment
     obs = env.reset()
@@ -267,7 +267,7 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
         # Take a step in the environment
         obs, reward, done, info = env.step(curr_action)
 
-        pu.plot_effector_actions(action=curr_action[0], run_step=step, demo_num=demo_num, color='gradient', start_timestep=0)
+        # pu.plot_effector_actions(action=curr_action[0], run_step=step, demo_num=demo_num, color='gradient', start_timestep=0)
 
         if done:
             final_status = (obs, reward, done, info)
@@ -280,7 +280,7 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
         step += 1
 
     
-    pu.finalize_full_trajectory_plot(obs=obs[0], demo_num=demo_num, coloring='gradient', custom_file_name="actual_artificial")
+    # pu.finalize_full_trajectory_plot(obs=obs[0], demo_num=demo_num, coloring='gradient', custom_file_name="actual_artificial")
     # Stop recording and save video
     env.env.video_recoder.stop()
     print(f"Video saved at: {output_dir}/{video_name}.mp4")

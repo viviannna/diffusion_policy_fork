@@ -228,7 +228,7 @@ class Demo:
 
             for step in range(self.start_timestep, first_touched + 1):
                 
-                if step == 0: 
+                if step == self.start_timestep: 
                     step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
@@ -240,7 +240,7 @@ class Demo:
 
 
             for step in range(self.start_timestep, first_touched + 1):
-                if step == 0: 
+                if step == self.start_timestep: 
                     step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
@@ -254,21 +254,26 @@ class Demo:
             cumulative_distance_B = 0
             total_distance_B = 0
 
+            # TODO: NEED TO DEBUG THIS. Basically you can't just use the first time you touched the block. It needs to be first time you touched the block after the pivot point? Or you need to essentially find the one after the midpoint. (Effector may accidentally brush past the block. )
+
             for step in range(self.pivot_point, second_touched + 1):
-                if step == 0: 
+                if step == self.start_timestep: 
                     step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+
+                # print(f"Moved from ({self.obs[step-1][6]}, {self.obs[step-1][7]}) to ({self.obs[step][6]}, {self.obs[step][7]}). Traveled {step_distance_B} units.")
                 total_distance_B += step_distance_B
 
             half_distance_B = total_distance_B / 2  # Midpoint in terms of distance for block B
             cumulative_distance_B = 0
 
             for step in range(self.pivot_point, second_touched + 1):
-                if step == 0: 
+                if step == self.start_timestep: 
                     step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                
                 cumulative_distance_B += step_distance_B
 
                 if cumulative_distance_B >= half_distance_B:
@@ -279,33 +284,68 @@ class Demo:
         assert self.switch_step_A is not None
         assert self.switch_step_B is not None
 
+    # def set_pivot(self, pivot_type="midpoint"):
+    #     """
+    #     Set the pivot point based on the type of pivot specified.
+
+    #     - midpoint: Pivot is the exact in between step between one_block and both_blocks
+    #     - closest_to_base: Pivot is the step closest to the base position on the return path. 
+    #     """
+
+    #     assert self.one_block is not None and self.both_blocks is not None, "Must set one_block and both_blocks first."
+        
+    #     self.midpoint = self.one_block + ((self.both_blocks - self.one_block) // 2)
+
+    #     # Pivot splits the two different points
+    #     if pivot_type == "midpoint":
+    #         self.pivot_point = self.midpoint
+        
+    #     elif pivot_type == "closest_to_base":
+    #         base_position = np.array([0.3, -0.4]) # (Assumes starting effector position)
+    #         min_distance = float("inf")
+    #         best_pivot = None
+
+    #         # Iterate over candidate pivot points
+    #         for step in range(self.one_block, self.both_blocks + 1):
+
+    #             curr_position = self.action[step]
+
+    #             # Calculate distance to base position
+    #             distance = np.linalg.norm(curr_position - base_position)
+
+    #             if distance < min_distance:
+    #                 min_distance = distance
+    #                 best_pivot = step
+
+    #         self.pivot_point = best_pivot
+
+
+
+    #         # TODO: Refactor this. Should probably change around the functionality/relationship between calculate_block_touches and set_pivot.
+
+
     def set_pivot(self, pivot_type="midpoint"):
         """
         Set the pivot point based on the type of pivot specified.
 
-        - midpoint: Pivot is the exact in between step between one_block and both_blocks
-        - closest_to_base: Pivot is the step closest to the base position on the return path. 
+        - midpoint: Pivot is the exact midpoint between one_block and both_blocks.
+        - closest_to_base: Pivot is the step closest to the base position on the return path.
         """
 
         assert self.one_block is not None and self.both_blocks is not None, "Must set one_block and both_blocks first."
-        
+
         self.midpoint = self.one_block + ((self.both_blocks - self.one_block) // 2)
 
-        # Pivot splits the two different points
         if pivot_type == "midpoint":
             self.pivot_point = self.midpoint
         
         elif pivot_type == "closest_to_base":
-            base_position = np.array([0.3, -0.4]) # (Assumes starting effector position)
+            base_position = np.array([0.3, -0.4])  # Assumes starting effector position
             min_distance = float("inf")
             best_pivot = None
 
-            # Iterate over candidate pivot points
             for step in range(self.one_block, self.both_blocks + 1):
-
                 curr_position = self.action[step]
-
-                # Calculate distance to base position
                 distance = np.linalg.norm(curr_position - base_position)
 
                 if distance < min_distance:
@@ -313,6 +353,21 @@ class Demo:
                     best_pivot = step
 
             self.pivot_point = best_pivot
+
+        # Update first_touch_1 to be the first touch AFTER the pivot point
+
+        for step in range(self.pivot_point, self.end_timestep + 1):
+
+            curr_obs = self.obs[step]
+            touching_second = pu.is_touching_block(curr_obs)[self.second_placed_block]  # First touch of second block
+
+            if touching_second:
+
+                if self.second_placed_block == 0:
+                    self.first_touch_0 = step
+                else:
+                    self.first_touch_1 = step
+                break  # Stop at the first touch after the pivot
 
     def calculate_block_touches(self):
         """
@@ -344,12 +399,14 @@ class Demo:
                 # Exactly one block in target
                 if self.one_block is None:
                     self.one_block = step
+
+                self.second_placed_block = 1 if b0_in_target else 0
             else:
                 # Both blocks in target
                 if self.both_blocks is None:
                     self.both_blocks = step
 
-
+  
     def calculate_key_points(self, pivot_type="midpoint", type_k="midpoint", switch_step_k=None):
         """
         First pass through the demonstration to identify key timesteps.
@@ -464,13 +521,13 @@ class Demo:
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
             if step == self.first_touch_A:
-                print(f"First touch 0 at {step}")
+                # print(f"First touch 0 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
             elif step == self.first_touch_B:
-                print(f"First touch 1 at {step}")
+                # print(f"First touch 1 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange') 
 
-    def color_code_at_k(self):
+    def color_code_at_k(self, plot_trajectory=False):
         """
         Colors the path with respect to `switch_step_A` and 'swich_step_B', using colors based on labels.
 
@@ -500,12 +557,14 @@ class Demo:
             curr_action = self.action[step]
 
             # Handle special cases for first touches
-            if step == self.first_touch_0:
-                print(f"First touch 0 at {step}")
-                pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
-            elif step == self.first_touch_1:
-                print(f"First touch 1 at {step}")
-                pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
+
+            if plot_trajectory:
+                if step == self.first_touch_0:
+                    print(f"First touch 0 at {step}")
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
+                elif step == self.first_touch_1:
+                    print(f"First touch 1 at {step}")
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
 
             # Assign colors based on labels
             label = self.labels[step]
@@ -518,11 +577,12 @@ class Demo:
             else:
                 color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
 
-            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color=color)
+            if plot_trajectory:
+                pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color=color)
 
-            if step == self.pivot_point:
-                pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
-                pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
+                if step == self.pivot_point:
+                    pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
             
 
@@ -532,7 +592,7 @@ class Demo:
     # are plotted in the color-coding methods.)
     # ------------------------------------------------------------------
 
-    def chunk_path(self, switch_step=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None):
+    def chunk_path(self, switch_step=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None, plot_trajectory=False):
         """
         Convenience method that for a single demonstration:
         - Initializes the global plot
@@ -552,7 +612,9 @@ class Demo:
         --------
         self.labels : The final list of labels for each timestep.
         """
-        pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
+        
+        if plot_trajectory:
+            pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
         self.calculate_key_points(pivot_type=pivot, type_k=type_k)
         self.label_segments_from_k()
@@ -561,18 +623,23 @@ class Demo:
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
 
-        pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="at_k")
+        if plot_trajectory:
+            pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="at_k")
         return self.labels
 
-    def plot_artificial_path(self, custom_file_name=None):
+    def plot_artificial_path(self, custom_file_name=None, plot_trajectory=False):
 
-        pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
+        if plot_trajectory:
+            pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
         for step in range(self.start_timestep, self.end_timestep +1 ):
             curr_action = self.action[step]
-            pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep)
 
-        pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
+            if plot_trajectory:
+                pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep)
+
+        if plot_trajectory:
+            pu.finalize_full_trajectory_plot(obs=self.obs[self.end_timestep], demo_num=self.demo_num, coloring="gradient", custom_file_name=custom_file_name)
 
         # We don't really care about segments anymore since we merged them together into one artificial demo
 
@@ -798,6 +865,8 @@ class DemoAggregate:
             print(f"\n--- Closest Environment {i+1}: Demo {env_data['demo_idx']} ---")
             print(f"Start={env_data['start_timestep']}, End={env_data['end_timestep']}, Distance={env_data['distance']:.2f}")
 
+        return closest_envs
+
 
     def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, run_sub_demos=False):
         """
@@ -835,7 +904,7 @@ class DemoAggregate:
             demo_num=demo_num_0
         )
 
-        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base")
+        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base") 
 
         if run_sub_demos:
             custom_runner.run_demo(obs_dict=demo_0.obs[demo_0.start_timestep:demo_0.end_timestep+1], action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
@@ -905,48 +974,50 @@ class DemoAggregate:
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
         if run_sub_demos:
-            final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
+            final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}")
 
             (obs, reward, done, info) = final_status
 
-
             # dump final status into a file?
-            with open("global_plots/final_status.txt", "w") as f:
-                f.write(f"Artificial trajectory created from demos {demo_num_0} and {demo_num_1} with ordering {ordering}\n")
-                f.write("Obs:")
-                f.write(f"{obs}\n")
-                f.write("Reward:")
-                f.write(f"{reward}\n")
-                f.write("Done:")
-                f.write(f"{done}\n")
-                f.write("Info:")
-                f.write(f"{info}\n")
+            # with open("global_plots/final_status.txt", "w") as f:
+            #     f.write(f"Artificial trajectory created from demos {demo_num_0} and {demo_num_1} with ordering {ordering}\n")
+            #     f.write("Obs:")
+            #     f.write(f"{obs}\n")
+            #     f.write("Reward:")
+            #     f.write(f"{reward}\n")
+            #     f.write("Done:")
+            #     f.write(f"{done}\n")
+            #     f.write("Info:")
+            #     f.write(f"{info}\n")
                 # f.write(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
+            return reward > 0.5
 
         # NOTE: All below this line should really only be done if the reward is above a certain threshold.
         # Append the new demo to obs and action datasets
         # if reward >= 0.5:
 
-        self.obs = np.concatenate([self.obs, new_obs], axis=0)
-        self.action = np.concatenate([self.action, new_action], axis=0)
+        # self.obs = np.concatenate([self.obs, new_obs], axis=0)
+        # self.action = np.concatenate([self.action, new_action], axis=0)
 
-        # Update EPISODE_STARTS with the new demo start
-        new_demo_start = EPISODE_STARTS[-1] 
-        new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
-        EPISODE_STARTS.append(new_demo_end + 1)
+        # # Update EPISODE_STARTS with the new demo start
+        # new_demo_start = EPISODE_STARTS[-1] 
+        # new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
+        # EPISODE_STARTS.append(new_demo_end + 1)
 
-        # Process the new artificial demo
-        new_demo_num = len(EPISODE_STARTS)
-        artificial_demo = Demo(
-            obs=self.obs,              # (num_steps, 16)
-            action=self.action,        # (num_steps, 2)
-            start_timestep=new_demo_start,
-            end_timestep=new_demo_end,      # Needs to be one less than the actual end 
-            demo_num=new_demo_num
-        )
-        # TODO: Don't need to plot when creating the demonstrations at scale. 
+        # # Process the new artificial demo
+        # new_demo_num = len(EPISODE_STARTS)
+        # artificial_demo = Demo(
+        #     obs=self.obs,              # (num_steps, 16)
+        #     action=self.action,        # (num_steps, 2)
+        #     start_timestep=new_demo_start,
+        #     end_timestep=new_demo_end,      # Needs to be one less than the actual end 
+        #     demo_num=new_demo_num
+        # )
+        # # TODO: Don't need to plot when creating the demonstrations at scale. 
 
-        artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
+        # artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
+        
+       
 
     def loop_through_ordering(self, ordering, group_name="artificial"):
         """
@@ -1006,9 +1077,8 @@ def main():
     os.makedirs("global_plots", exist_ok=True)
 
     demos = DemoAggregate()
-    demos.print_closest_envs(target_demo_num=0, num_demos=3)
 
-
+    
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
@@ -1022,18 +1092,41 @@ def main():
     
     
     # Forward
-    ordering = order['forward']
+    ordering = order['reverse']
 
-    # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
-    demo_num_0 = 0
-    demo_num_1 = 669
+    total_successful = 0 
+    
+    total_num_demos = len(EPISODE_STARTS) - 1
+    # for d in range(total_num_demos):
+
+    d = 1
+    closest_envs = demos.print_closest_envs(target_demo_num=0, num_demos=1)
+    demo_num_0 = d 
+    demo_num_1 = closest_envs[0]['demo_idx']
 
     start_0 = EPISODE_STARTS[demo_num_0]
     start_1 = EPISODE_STARTS[demo_num_1]
+
+    ordering = order['forward']
+    forward_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_sub_demos=True)
+    total_successful += int(forward_worked)
+
+    ordering = order['reverse']
+    reverse_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_sub_demos=True)
+    total_successful += int(reverse_worked)
+
+    print(f"Total successful: {total_successful}/{total_num_demos * 2}")
+
+    # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
+    # demo_num_0 = 0
+    # demo_num_1 = 669
+
+    # start_0 = EPISODE_STARTS[demo_num_0]
+    # start_1 = EPISODE_STARTS[demo_num_1]
     
 
-    demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_sub_demos=True)
-    demos.loop_through_ordering(ordering, group_name="artificial")
+   
+    # demos.loop_through_ordering(ordering, group_name="artificial")
 
     # NOTE: Good, the artificial demos aren't actually added to the zarr file. So we can test them before actually adding them to the training set. 
      
