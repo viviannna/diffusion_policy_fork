@@ -1105,7 +1105,7 @@ def main():
 
     with tqdm(total=total_num_demos, desc="Processing Demos", unit="demo") as pbar:
         for d in range(total_num_demos):
-            closest_envs = demos.print_closest_envs(target_demo_num=0, num_demos=1)
+            closest_envs = demos.print_closest_envs(target_demo_num=d, num_demos=1)
             demo_num_0 = d
             demo_num_1 = closest_envs[0]['demo_idx']
 
