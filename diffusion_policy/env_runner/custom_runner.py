@@ -215,21 +215,20 @@ def save_init_obs(init_obs):
     print(f"Saved initial observation to {INIT_OBS_FILE}")
 
 
-def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_action_sim"):
+def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video_name="zarr_action_sim"):
     """
     Runs the block pushing environment using given observations and actions.
 
     Parameters:
-        obs_dict (np.array): Preloaded observations, shaped as (steps, batches, obs_dim).
+        init_obs (np.array): Preloaded observation at step=0 shaped as (obs_dim).
         action_dict (np.array): Preloaded actions, shaped as (steps, batches, 1, action_dim).
         demo_num (int): Demonstration identifier.
         output_dir (str): Directory to save output.
     """
     # Prepare demonstration data
-    num_steps = len(obs_dict)
     
     current_demo = {
-        'obs': obs_dict.copy(),  # Copy to avoid modifying original data
+        'init_obs': init_obs,  # Copy to avoid modifying original data
         'action': action_dict.copy().reshape(num_steps, 1, 1, 2),  # Reshape to (steps, batch, 1, 2)
     }
 
@@ -238,7 +237,17 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
     
 
     # Set and save the initial observation
-    init_obs = current_demo['obs'][0]
+    # init_obs = current_demo['obs'][0] # lets change this
+
+    # TODO: Save the intiial observations of both demos. You should preserve one block from each of the demonstrations. Somehow I think we should also recieve first block touched from see_training_demos. And then from there we can evaluate which block to take from which demonstration. 
+
+    # one annoying problem is that 0,1 are like useless variable names 
+    # but basically we wnat the block that our first one doesn't originally go to to to become 
+
+    # okay lowkey im going to try just replacing it with the observations of the spliced 
+
+
+
     save_init_obs(init_obs)
     demo_num = hash(video_name)
     # pu.setup_full_trajectory_plot(init_obs, demo_num) # Just hashed because I don't want to keep making a new number. 
