@@ -368,6 +368,8 @@ class Demo:
                     self.first_touch_1 = step
                 break  # Stop at the first touch after the pivot
 
+        assert self.first_touch_0 and self.first_touch_1
+
     def calculate_block_touches(self):
         """
         Calculate the first time each block is touched.
@@ -617,7 +619,7 @@ class Demo:
 
         self.calculate_key_points(pivot_type=pivot, type_k=type_k)
         self.label_segments_from_k()
-        self.color_code_at_k()
+        self.color_code_at_k(plot_trajectory=plot_trajectory)
     
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
@@ -695,9 +697,15 @@ class Demo:
 # ------------------------------------------------------------------
 
 class DemoAggregate:
-    def __init__(self, mode='abs'):
+    def __init__(self, mode='abs', artificial_trajectory=True, artificial_rollout=True, source_trajectory=True, source_rollout=True):
         """
         Open the desired zarr dataset. Store observations/actions for further use.
+
+        artificial_trajectory: plot the artificial trajectory (global plots)
+        artificial_rollout: plot the artificial rollout (video)
+        source_trajectory: plot the source trajectory (global plots)
+        source_rollout: plot the source rollout (video)
+
         """
         if mode == 'abs':
             self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r')
@@ -709,6 +717,11 @@ class DemoAggregate:
             self.action = self.zarr_rel['data']['action']
         else:
             raise ValueError(f"Invalid mode: {mode}")
+        
+        self.artificial_trajectory = artificial_trajectory
+        self.artificial_rollout = artificial_rollout
+        self.source_trajectory = source_trajectory
+        self.source_rollout = source_rollout
 
     def _get_blocks_as_dicts(self, obs):
         """
@@ -867,7 +880,7 @@ class DemoAggregate:
         return closest_envs
 
 
-    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, video_source_demos=False, direction="f"):
+    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, rollout_source_demos=False, direction="f"):
         """
         Creates a new artificial trajectory by extracting segments from two demos and arranging them based on ordering.
 
@@ -897,12 +910,13 @@ class DemoAggregate:
             demo_num=demo_num_0
         )
 
-        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=video_source_demos) 
+        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory) 
 
-        if video_source_demos:
+        if self.source_rollout:
             init_obs = demo_0.obs[demo_0.start_timestep]
             num_steps = demo_0.end_timestep - demo_0.start_timestep + 1
-            custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
+            final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
+            (obs_0, reward_0, done_0, info_0) = final_status
 
 
         # custom_runner.rollout_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
@@ -919,15 +933,22 @@ class DemoAggregate:
             demo_num=demo_num_1
         )
 
-        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=video_source_demos)
+        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory)
 
          # Trying to record the original demonstration
-        if video_source_demos:
+        if self.source_rollout:
 
             init_obs = demo_1.obs[demo_1.start_timestep]
             num_steps = demo_1.end_timestep - demo_1.start_timestep + 1
 
-            custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
+            final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
+
+            (obs_1, reward_1, done_1, info_1) = final_status
+
+        
+        # Only make the new artificial trajectory if the sources them
+
+
 
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
@@ -1026,9 +1047,11 @@ class DemoAggregate:
 
         # == Regular construction of the new trajectory ==
         # Dynamically construct the new trajectory
-        # no need to construct the obs we're going to just roll it out. 
-        # new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
+    
+        new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
+
+        # NOTE: NEED TO ALSO APPEND TO EPSIODE_ENDS and update the zarr file for it to be useful for training
 
 
         # Need to figure out what block I touch first in this rollout. I suppose I could just chunk this artificial trajectory. I shtere an easier way.. ? I mean cause all I have at this point are just the steps that I want it to to take but no observations. 
@@ -1066,29 +1089,30 @@ class DemoAggregate:
 
         # NOTE: All below this line should really only be done if the reward is above a certain threshold.
         # Append the new demo to obs and action datasets and plot it 
-        # if reward >= 0.5 and video_source_demos:
+        # if reward >= 0.5:
 
-        #     # TODO: Never actually tested this, circle back once rollouts start working again. 
-        #     self.obs = np.concatenate([self.obs, new_obs], axis=0)
-        #     self.action = np.concatenate([self.action, new_action], axis=0)
+        # TODO: Never actually tested this, circle back once rollouts start working again. 
+        self.obs = np.concatenate((self.obs, new_obs), axis=0)
+        self.action = np.concatenate((self.action, new_action), axis=0)
 
-        #     # Update EPISODE_STARTS with the new demo start
-        #     new_demo_start = EPISODE_STARTS[-1] 
-        #     new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
-        #     EPISODE_STARTS.append(new_demo_end + 1)
+        # Update EPISODE_STARTS with the new demo start
+        new_demo_start = EPISODE_STARTS[-1] 
+        new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
+        EPISODE_STARTS.append(new_demo_end + 1)
 
-        #     # Process the new artificial demo
-        #     new_demo_num = len(EPISODE_STARTS)
-        #     artificial_demo = Demo(
-        #         obs=self.obs,              # (num_steps, 16)
-        #         action=self.action,        # (num_steps, 2)
-        #         start_timestep=new_demo_start,
-        #         end_timestep=new_demo_end,      # Needs to be one less than the actual end 
-        #         demo_num=new_demo_num
-        #     )
-        #     # TODO: Don't need to plot when creating the demonstrations at scale. 
+        # Process the new artificial demo
+        new_demo_num = len(EPISODE_STARTS)
+        artificial_demo = Demo(
+            obs=self.obs,              # (num_steps, 16)
+            action=self.action,        # (num_steps, 2)
+            start_timestep=new_demo_start,
+            end_timestep=new_demo_end,      # Needs to be one less than the actual end 
+            demo_num=new_demo_num
+        )
+        # TODO: Don't need to plot when creating the demonstrations at scale. 
 
-        #     artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
+        file_name = f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}"
+        artificial_demo.plot_artificial_path(custom_file_name=file_name, plot_trajectory=self.artificial_trajectory)
 
         return reward 
         
@@ -1179,9 +1203,8 @@ def all_artificial_rollout():
     d = 0 
 
     with tqdm(total=total_num_demos, desc="Processing Demos", unit="demo") as pbar:
-        # for d in range(total_num_demos):
-        for d in range(1):
-            d = 0
+        for d in range(total_num_demos):
+        # for d in range(1):
             closest_envs = demos.print_closest_envs(target_demo_num=d, num_demos=1)
             demo_num_0 = d
             demo_num_1 = closest_envs[0]['demo_idx']
@@ -1190,24 +1213,24 @@ def all_artificial_rollout():
             start_1 = EPISODE_STARTS[demo_num_1]
 
             ordering = order['forward']
-            forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", video_source_demos=True, direction="f")
+            forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="f")
             if forward_reward != 0:
-                print(f"For demo {d}, forward worked with reward {forward_reward}")
+                print(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}")
 
                 with open("global_plots/successful_demos.txt", "a") as f:
-                    f.write(f"Demo {d} worked forward worked with reward {forward_reward}.\n")
+                    f.write(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}.\n")
             total_successful += 1 if forward_reward > 0 else 0
 
             ordering = order['reverse']
             reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
-            custom_file_name=f"predicted_artificial", video_source_demos=True, direction="r")
+            custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="r")
             if reverse_reward != 0:
             
-                print(f"For demo {d}, reverse worked with reward {reverse_reward}")
+                print(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}")
 
                 # create a txt log file and start appending which demos worked 
                 with open("global_plots/successful_demos.txt", "a") as f:
-                    f.write(f"Demo {d} worked reverse worked with reward {reverse_reward}.\n")
+                    f.write(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}.\n")
 
             total_successful += 1 if reverse_reward > 0 else 0
 
@@ -1261,7 +1284,7 @@ def single_artificial_rollout(d=0):
     start_1 = EPISODE_STARTS[demo_num_1]
 
     ordering = order['forward']
-    forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", video_source_demos=True, direction="f")
+    forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="f")
     if forward_reward != 0:
         print(f"For demo {d}, forward worked with reward {forward_reward}")
 
@@ -1270,7 +1293,7 @@ def single_artificial_rollout(d=0):
 
     ordering = order['reverse']
     reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
-    custom_file_name=f"predicted_artificial", video_source_demos=True, direction="r")
+    custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="r")
     if reverse_reward != 0:
     
         print(f"For demo {d}, reverse worked with reward {reverse_reward}")
@@ -1289,8 +1312,7 @@ def single_artificial_rollout(d=0):
    
     # demos.loop_through_ordering(ordering, group_name="artificial")
 
-
-def single_artificial_trajectory():
+def single_artificial_trajectory(d=1):
 
     # Clear old plots
     if os.path.exists("global_plots"):
@@ -1316,8 +1338,9 @@ def single_artificial_trajectory():
     
     
     # Forwar
-    d = 0 
+
     ordering = order['forward']
+    
 
     demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
     demo_num_0 = 0
@@ -1325,10 +1348,30 @@ def single_artificial_trajectory():
 
     demos.loop_through_ordering(ordering, group_name="artificial")
 
+def single_demo_rollout(d=0): 
+
+
+
+    demos = DemoAggregate()
+
+
+    demo = Demo(
+        obs=demos.obs,
+        action=demos.action,
+        start_timestep=EPISODE_STARTS[d],
+        end_timestep=EPISODE_STARTS[d+1]-1,
+        demo_num=d
+    )
+
+    custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
 def main():
 
-    single_artificial_rollout()
 
+    # single_artificial_rollout(d=103)
+    # all_artificial_rollout()
+
+    single_demo_rollout(d=103)
+    
 
 if __name__ == "__main__":
     main()
