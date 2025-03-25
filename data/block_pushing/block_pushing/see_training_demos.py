@@ -868,7 +868,7 @@ class DemoAggregate:
         return closest_envs
 
 
-    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, run_source_demos=False):
+    def create_artificial_demo(self, start_0, start_1, ordering, custom_file_name=None, run_source_demos=False, direction="f"):
         """
         Creates a new artificial trajectory by extracting segments from two demos and arranging them based on ordering.
 
@@ -889,11 +889,7 @@ class DemoAggregate:
 
         print(f"\n\nCreating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
 
-        # Delete sim_videos 
-        if run_source_demos:
-            if os.path.exists("sim_videos"):
-                shutil.rmtree("sim_videos")
-            os.makedirs("sim_videos")
+    
 
         # Extract first demonstration
         demo_0 = Demo(
@@ -904,7 +900,7 @@ class DemoAggregate:
             demo_num=demo_num_0
         )
 
-        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base") 
+        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=run_source_demos) 
 
         if run_source_demos:
             custom_runner.run_demo(obs_dict=demo_0.obs[demo_0.start_timestep:demo_0.end_timestep+1], action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
@@ -924,14 +920,11 @@ class DemoAggregate:
             demo_num=demo_num_1
         )
 
-        # Trying to record the original demonstration
+        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=run_source_demos)
+
+         # Trying to record the original demonstration
         if run_source_demos:
             custom_runner.run_demo(obs_dict=demo_1.obs[demo_1.start_timestep:demo_1.end_timestep+1], action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
-
-        # TODO: Instead of this call chunk_path (Want to plot the og demos anyways)
-        # demo_1.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
-        # demo_1.label_segments_from_k()
-        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base")
 
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
@@ -969,16 +962,75 @@ class DemoAggregate:
             }
         }
 
-        # TODO: Add some lines between the the jump
+        # # TODO: Add some lines between the the jump
+        # # Based on the ordering:
+        # # We jump between the last observation of the 0th segment and the first observation of the 1st segment
+        # before_jump = segment_dict[ordering[0]]['obs'][-1]
+        # after_jump = segment_dict[ordering[1]]['obs'][0]
+
+        # # Try getting an (x,y) point between before_jump[6], before_jump[7] and after_jump[6], after_jump[7]. Create a new observation where its the same observation of after_jump but with [6] and [7] changed to the average of the two.
+
+        # new_jump_obs = np.copy(after_jump)
+        # new_jump_obs[6] = (before_jump[6] + after_jump[6]) / 2
+        # new_jump_obs[7] = (before_jump[7] + after_jump[7]) / 2
+
+        # # Get a vector between before_jump [6], before_jump[7] and new_jump_obs[6], new_jump_obs[7] and pass it as an action
+        # new_jump_action = np.array([new_jump_obs[6] - before_jump[6], new_jump_obs[7] - before_jump[7]])
+
+
+        # # Insert the new jump point into the ordering between 0 and 1
+
+        # new_obs = [segment_dict[ordering[0]]["obs"]]  # Start with first segment
+        # new_obs.append(np.expand_dims(new_jump_obs, axis=0))  # Insert the jump point
+        # # Append the rest of the segments in order
+        # new_obs.extend([segment_dict[segment]["obs"] for segment in ordering[1:]])
+        # # Concatenate along axis 0 to form the final trajectory
+        # new_obs = np.concatenate(new_obs, axis=0)
+
+        # new_action = [segment_dict[ordering[0]]["action"]]  # Start with first segment
+        # new_action.append(np.expand_dims(new_jump_action, axis=0))  # Insert the jump point
+        # # Append the rest of the segments in order
+        # new_action.extend([segment_dict[segment]["action"] for segment in ordering[1:]])
+
+
+        # Identify the jump points
+        before_jump = segment_dict[ordering[0]]['obs'][-1]
+        after_jump = segment_dict[ordering[1]]['obs'][0]
+
+        # Create a new observation by averaging the (x, y) coordinates
+        new_jump_obs = np.copy(after_jump)
+        new_jump_obs[6] = (before_jump[6] + after_jump[6]) / 2
+        new_jump_obs[7] = (before_jump[7] + after_jump[7]) / 2
+
+        # Compute the action vector between before_jump and new_jump_obs
+        new_jump_action = np.array([new_jump_obs[6] - before_jump[6], new_jump_obs[7] - before_jump[7]])
+
+        # Construct the new observation sequence
+        new_obs = np.concatenate(
+            [segment_dict[ordering[0]]["obs"], np.expand_dims(new_jump_obs, axis=0)]
+            + [segment_dict[segment]["obs"] for segment in ordering[1:]],
+            axis=0
+        )
+
+        # Construct the new action sequence
+        new_action = np.concatenate(
+            [segment_dict[ordering[0]]["action"], np.expand_dims(new_jump_action, axis=0)]
+            + [segment_dict[segment]["action"] for segment in ordering[1:]],
+            axis=0
+        )
 
 
 
-        # Dynamically construct the new trajectory
-        new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
-        new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
+
+
+        # # Dynamically construct the new trajectory
+        # new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
+        # new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
+
+    
 
        
-        final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}")
+        final_status = custom_runner.run_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}")
 
         (obs, reward, done, info) = final_status
 
@@ -994,10 +1046,10 @@ class DemoAggregate:
             #     f.write("Info:")
             #     f.write(f"{info}\n")
                 # f.write(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
-        return reward >= 0.5
+        
 
         # NOTE: All below this line should really only be done if the reward is above a certain threshold.
-        # Append the new demo to obs and action datasets
+        # Append the new demo to obs and action datasets and plot it 
         if reward >= 0.5 and run_source_demos:
 
             self.obs = np.concatenate([self.obs, new_obs], axis=0)
@@ -1020,6 +1072,8 @@ class DemoAggregate:
             # TODO: Don't need to plot when creating the demonstrations at scale. 
 
             artificial_demo.plot_artificial_path(custom_file_name=custom_file_name)
+
+        return reward 
         
        
 
@@ -1082,6 +1136,10 @@ def main():
 
     demos = DemoAggregate()
 
+    if os.path.exists("sim_videos"):
+        shutil.rmtree("sim_videos")
+    os.makedirs("sim_videos")
+
     
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
@@ -1104,7 +1162,9 @@ def main():
     d = 0 
 
     with tqdm(total=total_num_demos, desc="Processing Demos", unit="demo") as pbar:
-        for d in range(total_num_demos):
+        # for d in range(total_num_demos):
+        for d in range(1):
+            d = 0
             closest_envs = demos.print_closest_envs(target_demo_num=d, num_demos=1)
             demo_num_0 = d
             demo_num_1 = closest_envs[0]['demo_idx']
@@ -1113,18 +1173,26 @@ def main():
             start_1 = EPISODE_STARTS[demo_num_1]
 
             ordering = order['forward']
-            forward_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_source_demos=False)
-            if forward_worked:
-                print(f"For demo {d}, forward worked")
-            total_successful += int(forward_worked)
+            forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", run_source_demos=True, direction="f")
+            if forward_reward != 0:
+                print(f"For demo {d}, forward worked with reward {forward_reward}")
+
+                with open("global_plots/successful_demos.txt", "a") as f:
+                    f.write(f"Demo {d} worked forward worked with reward {forward_reward}.\n")
+            total_successful += 1 if forward_reward > 0 else 0
 
             ordering = order['reverse']
-            reverse_worked = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
-            custom_file_name=f"predicted_artificial", run_source_demos=False)
-            if reverse_worked:
-                print(f"For demo {d}, reverse worked")
+            reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
+            custom_file_name=f"predicted_artificial", run_source_demos=True, direction="r")
+            if reverse_reward != 0:
+            
+                print(f"For demo {d}, reverse worked with reward {reverse_reward}")
 
-            total_successful += int(reverse_worked)
+                # create a txt log file and start appending which demos worked 
+                with open("global_plots/successful_demos.txt", "a") as f:
+                    f.write(f"Demo {d} worked reverse worked with reward {reverse_reward}.\n")
+
+            total_successful += 1 if reverse_reward > 0 else 0
 
             # Update progress bar
             pbar.update(1)

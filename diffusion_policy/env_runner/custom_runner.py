@@ -271,11 +271,10 @@ def run_demo(obs_dict, action_dict, output_dir="sim_videos",video_name="zarr_act
 
         if done:
             final_status = (obs, reward, done, info)
-            print(f"Done at step {step}")
-            if done and step == num_steps - 1 and reward < 0.5:
-                print("Failed to reach goal")
+            if reward <= 0.0:
+                print(f"Failed to reach goal at step {step} with reward {reward}")
             else:
-                print("Reached goal")
+                print(f"Reached goal at step {step} with reward {reward}")
             break
 
         
