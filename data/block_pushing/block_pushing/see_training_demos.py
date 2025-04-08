@@ -676,11 +676,11 @@ class DemoAggregate:
 
         """
         if mode == 'abs':
-            self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r+')
+            self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r')
             self.obs = self.zarr_abs['data']['obs']
             self.action = self.zarr_abs['data']['action']
         elif mode == 'rel':
-            self.zarr_rel = zarr.open("data/block_pushing/multimodal_push_seed.zarr", mode='r+')
+            self.zarr_rel = zarr.open("data/block_pushing/multimodal_push_seed.zarr", mode='r')
             self.obs = self.zarr_rel['data']['obs']
             self.action = self.zarr_rel['data']['action']
         else:
