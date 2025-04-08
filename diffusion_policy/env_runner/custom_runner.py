@@ -11,6 +11,7 @@ from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrap
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from gym.wrappers import FlattenObservation
 import json
+import math
 
 from data.block_pushing.block_pushing import plot_training_demos as pu
 
@@ -234,19 +235,6 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
 
     # Initialize environment
     env = env_fn(video_name, num_steps)
-    
-
-    # Set and save the initial observation
-    # init_obs = current_demo['obs'][0] # lets change this
-
-    # TODO: Save the intiial observations of both demos. You should preserve one block from each of the demonstrations. Somehow I think we should also recieve first block touched from see_training_demos. And then from there we can evaluate which block to take from which demonstration. 
-
-    # one annoying problem is that 0,1 are like useless variable names 
-    # but basically we wnat the block that our first one doesn't originally go to to to become 
-
-    # okay lowkey im going to try just replacing it with the observations of the spliced 
-
-
 
     save_init_obs(init_obs)
     demo_num = hash(video_name)
@@ -263,6 +251,24 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
     done = False
     step = 0
     # for step in range(num_steps):
+
+    log_path = f"{output_dir}/{video_name}.txt"
+    with open(log_path, 'w') as f:
+        f.write(f"Rollout for {video_name}\n")
+
+    prior_obs = init_obs
+
+    with open(log_path, 'a') as f:
+        f.write(f"Initalization:\n")
+        f.write(f" Block 1: {prior_obs[0]:.4f}, {prior_obs[1]:.4f}, {prior_obs[2]:.4f}\n")
+        f.write(f" Block 2: {prior_obs[3]:.4f}, {prior_obs[4]:.4f}, {prior_obs[5]:.4f}\n")
+        f.write(f" Effector: {prior_obs[6]:.4f}, {prior_obs[7]:.4f}\n")
+        f.write(f" Target Effector: {prior_obs[8]:.4f}, {prior_obs[9]:.4f}\n")
+        f.write(f" Target 1: {prior_obs[10]:.4f}, {prior_obs[11]:.4f}, {prior_obs[12]:.4f}\n")
+        f.write(f" Target 2: {prior_obs[13]:.4f}, {prior_obs[14]:.4f}, {prior_obs[15]:.4f}\n\n")
+
+            
+
     while not done:
         
         batch = 0
@@ -273,8 +279,33 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
         assert action_dict[step][0] == curr_action[0][0]
         assert action_dict[step][1] == curr_action[0][1]
 
+        if step == 3 and video_name== "artificial_trajectory_3+659_f": 
+            print("break!")
+
         # Take a step in the environment
         obs, reward, done, info = env.step(curr_action)
+
+        # Calculate speed from obs[x 0, y 1, orientation 2] and the prior obs 
+        distance = math.sqrt((obs[0][0] - prior_obs[0])**2 + (obs[0][1] - prior_obs[1])**2)
+        
+
+        with open(log_path, 'a') as f:
+            f.write(f"Step {step}:\n")
+            f.write(f"  Action: {curr_action[0][0]:.4f}, {curr_action[0][1]:.4f}\n")
+            f.write(f"  Block 1: {obs[0][0]:.4f}, {obs[0][1]:.4f}, {obs[0][2]:.4f}\n")
+            f.write(f"  Block 2: {obs[0][3]:.4f}, {obs[0][4]:.4f}, {obs[0][5]:.4f}\n")
+            f.write(f"  Effector: {obs[0][6]:.4f}, {obs[0][7]:.4f}\n")
+            f.write(f"  Target Effector: {obs[0][8]:.4f}, {obs[0][9]:.4f}\n")
+            f.write(f"  Target 1: {obs[0][10]:.4f}, {obs[0][11]:.4f}, {obs[0][12]:.4f}\n")
+            f.write(f"  Target 2: {obs[0][13]:.4f}, {obs[0][14]:.4f}, {obs[0][15]:.4f}\n")
+            f.write(f"  Distance: {distance:.4f}\n")
+            f.write(f"  REACH_0: {info['REACH_0']}, REACH_1: {info['REACH_1']}, TARGET_0_0: {info['TARGET_0_0']}, TARGET_0_1: {info['TARGET_0_1']}, TARGET_1_0: {info['TARGET_1_0']}, TARGET_1_1: {info['TARGET_1_1']}\n\n")
+
+
+
+        # Log observation and actions per step in the json
+
+
 
         # pu.plot_effector_actions(action=curr_action[0], run_step=step, demo_num=demo_num, color='gradient', start_timestep=0)
 
@@ -288,11 +319,13 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
 
         
         step += 1
+        prior_obs = obs[0]
 
     
     # pu.finalize_full_trajectory_plot(obs=obs[0], demo_num=demo_num, coloring='gradient', custom_file_name="actual_artificial")
     # Stop recording and save video
     env.env.video_recoder.stop()
     print(f"Video saved at: {output_dir}/{video_name}.mp4")
+
 
     return final_status
