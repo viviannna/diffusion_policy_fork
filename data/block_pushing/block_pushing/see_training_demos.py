@@ -155,7 +155,6 @@ EPISODE_STARTS = [0,   104,    227,    352,    461,    587,    695,    816,    9
        114155, 114278, 114383, 114499, 114611, 114739, 114851, 114962]
 
 
-
 import numpy as np
 import os
 import shutil
@@ -239,7 +238,7 @@ class Demo:
                     step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
-                # print(f"Moved from ({self.obs[step-1][6]}, {self.obs[step-1][7]}) to ({self.obs[step][6]}, {self.obs[step][7]}). Traveled {step_distance} units.")
+        
                 total_distance += step_distance
             
             half_distance = total_distance / 2  # Midpoint in terms of distance
@@ -261,15 +260,12 @@ class Demo:
             cumulative_distance_B = 0
             total_distance_B = 0
 
-            # TODO: NEED TO DEBUG THIS. Basically you can't just use the first time you touched the block. It needs to be first time you touched the block after the pivot point? Or you need to essentially find the one after the midpoint. (Effector may accidentally brush past the block. )
-
             for step in range(self.pivot_point, second_touched + 1):
                 if step == self.start_timestep: 
                     step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
 
-                # print(f"Moved from ({self.obs[step-1][6]}, {self.obs[step-1][7]}) to ({self.obs[step][6]}, {self.obs[step][7]}). Traveled {step_distance_B} units.")
                 total_distance_B += step_distance_B
 
             half_distance_B = total_distance_B / 2  # Midpoint in terms of distance for block B
@@ -290,46 +286,6 @@ class Demo:
 
         assert self.switch_step_A is not None
         assert self.switch_step_B is not None
-
-    # def set_pivot(self, pivot_type="midpoint"):
-    #     """
-    #     Set the pivot point based on the type of pivot specified.
-
-    #     - midpoint: Pivot is the exact in between step between one_block and both_blocks
-    #     - closest_to_base: Pivot is the step closest to the base position on the return path. 
-    #     """
-
-    #     assert self.one_block is not None and self.both_blocks is not None, "Must set one_block and both_blocks first."
-        
-    #     self.midpoint = self.one_block + ((self.both_blocks - self.one_block) // 2)
-
-    #     # Pivot splits the two different points
-    #     if pivot_type == "midpoint":
-    #         self.pivot_point = self.midpoint
-        
-    #     elif pivot_type == "closest_to_base":
-    #         base_position = np.array([0.3, -0.4]) # (Assumes starting effector position)
-    #         min_distance = float("inf")
-    #         best_pivot = None
-
-    #         # Iterate over candidate pivot points
-    #         for step in range(self.one_block, self.both_blocks + 1):
-
-    #             curr_position = self.action[step]
-
-    #             # Calculate distance to base position
-    #             distance = np.linalg.norm(curr_position - base_position)
-
-    #             if distance < min_distance:
-    #                 min_distance = distance
-    #                 best_pivot = step
-
-    #         self.pivot_point = best_pivot
-
-
-
-    #         # TODO: Refactor this. Should probably change around the functionality/relationship between calculate_block_touches and set_pivot.
-
 
     def set_pivot(self, pivot_type="midpoint"):
         """
@@ -596,8 +552,6 @@ class Demo:
                     pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
-            
-
     # ------------------------------------------------------------------
     # One-shot convenience  to calculate the key points of a single demo
     # and set up and finalize the full trajectory plot. (Individual steps 
@@ -684,10 +638,6 @@ class Demo:
         ], capture_output=True, text=True)
 
 
-
-
-
-
 # ------------------------------------------------------------------
 # DemoAggregate: Global Analysis and Comparison of Demonstrations
 # ------------------------------------------------------------------
@@ -715,14 +665,14 @@ class Demo:
 # ------------------------------------------------------------------
 
 class DemoAggregate:
-    def __init__(self, mode='abs', artificial_trajectory=True, artificial_rollout=True, source_trajectory=True, source_rollout=True):
+    def __init__(self, mode='abs', artificial_trajectory=True, artificial_rollout=True, source_trajectory=True, rollout_source=True):
         """
         Open the desired zarr dataset. Store observations/actions for further use.
 
         artificial_trajectory: plot the artificial trajectory (global plots)
         artificial_rollout: plot the artificial rollout (video)
         source_trajectory: plot the source trajectory (global plots)
-        source_rollout: plot the source rollout (video)
+        rollout_source: plot the source rollout (video)
 
         """
         if mode == 'abs':
@@ -739,7 +689,7 @@ class DemoAggregate:
         self.artificial_trajectory = artificial_trajectory
         self.artificial_rollout = artificial_rollout
         self.source_trajectory = source_trajectory
-        self.source_rollout = source_rollout
+        self.rollout_source = rollout_source
 
     def _get_blocks_as_dicts(self, obs):
         """
@@ -916,10 +866,8 @@ class DemoAggregate:
         demo_num_0 = EPISODE_STARTS.index(start_0)
         demo_num_1 = EPISODE_STARTS.index(start_1)
 
-
         print(f"\n\nCreating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
 
-        
         # Extract first demonstration
         demo_0 = Demo(
             obs=self.obs,                  # (114962, 16)
@@ -934,17 +882,12 @@ class DemoAggregate:
             print(f"Demo {demo_num_0} is invalid. Cannot use it to construct an artificial path {demo_num_0}+{demo_num_1}_{direction}.")
             return -1
 
-        if self.source_rollout:
+        if self.rollout_source:
             init_obs = demo_0.obs[demo_0.start_timestep]
             num_steps = demo_0.end_timestep - demo_0.start_timestep + 1
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
             (obs_0, reward_0, done_0, info_0) = final_status
 
-
-        # custom_runner.rollout_demo(obs_dict=new_obs, action_dict=new_action, video_name=f"artificial_trajectory")
-
-        # demo_0.calculate_key_points(pivot="closest_to_base", type_k="midpoint")
-        # demo_0.label_segments_from_k()
 
         # Extract second demonstration
         demo_1 = Demo(
@@ -961,12 +904,13 @@ class DemoAggregate:
             return -1
 
          # Trying to record the original demonstration
-        if self.source_rollout:
+        if self.rollout_source:
 
             init_obs = demo_1.obs[demo_1.start_timestep]
             num_steps = demo_1.end_timestep - demo_1.start_timestep + 1
 
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
+
 
             (obs_1, reward_1, done_1, info_1) = final_status
 
@@ -1024,30 +968,27 @@ class DemoAggregate:
 
         segment_dict["jump_point"] = jump_point # add jump point to ordering # TODO: Double check that this jump point is actually useful. 
 
-        # == Regular construction of the new trajectory ==
         # Dynamically construct the new trajectory
-
         new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
         # NOTE: NEED TO ALSO APPEND TO EPSIODE_ENDS and update the zarr file for it to be useful for training
 
+        # Add the initial observation of the second demonstration that we splice into so that the blocks are close. 
         if "demo0" in ordering[0]:
             init_obs = demo_1.obs[demo_1.start_timestep]
         else:
             init_obs = demo_0.obs[demo_0.start_timestep]
 
-        
-
         num_steps = len(new_action)
 
         final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}") 
-
+    
+   
         (obs, reward, done, info) = final_status
 
         if reward >= 1:
             episode_ends = np.array(self.zarr_abs['meta']['episode_ends'][-1] + (num_steps))
-
 
             # self.add_demo(new_obs, new_action, episode_ends ) # TODO: Get this working. Editing the zarr seems to introduce bugs to the code (observations end up looking very different.) 
 
@@ -1150,10 +1091,9 @@ class DemoAggregate:
             "-loop", "0", "global_plots/predicted_artificial_steps.mp4"
         ], check=True)
 
-
-
-
 def all_artificial_rollout(): 
+    """
+    Creates an artificial trajectory from all demonstrations and their closest demonstration. Creates both the forward and reverse trajectory and rolls it out."""
         
     # Clear old plots
     if os.path.exists("global_plots"):
@@ -1167,7 +1107,7 @@ def all_artificial_rollout():
     os.makedirs("sim_videos")
 
 
-    # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
+    # NOTE: find_closest_envs makes lots of assumptions here about starting on the same path (touching the same block). Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
     # Dictionary of all types of orderings:
     order = {
@@ -1234,8 +1174,6 @@ def all_artificial_rollout():
    
     # demos.loop_through_ordering(ordering, group_name="artificial")
 
-
-
 def single_artificial_rollout_for(d=0): 
 
     """
@@ -1290,16 +1228,6 @@ def single_artificial_rollout_for(d=0):
         with open("global_plots/successful_demos.txt", "a") as f:
             f.write(f"Demo {d} worked reverse worked with reward {reverse_reward}.\n")
 
-
-    # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
-    # demo_num_0 = 0
-    # demo_num_1 = 669
-
-    # start_0 = EPISODE_STARTS[demo_num_0]
-    # start_1 = EPISODE_STARTS[demo_num_1]
-   
-    # demos.loop_through_ordering(ordering, group_name="artificial")
-
 def single_artificial_trajectory(d=1):
 
     # Clear old plots
@@ -1324,9 +1252,6 @@ def single_artificial_trajectory(d=1):
         'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
     }
     
-    
-    # Forwar
-
     ordering = order['forward']
     
 
@@ -1340,7 +1265,6 @@ def single_demo_rollout(d=0):
 
     demos = DemoAggregate()
 
-
     demo = Demo(
         obs=demos.obs,
         action=demos.action,
@@ -1352,9 +1276,7 @@ def single_demo_rollout(d=0):
     custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
 def main():
 
-
     single_artificial_rollout_for(d=3)
-
 
 if __name__ == "__main__":
     main()
