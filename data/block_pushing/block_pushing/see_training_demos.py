@@ -927,6 +927,12 @@ class DemoAggregate:
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
             (obs_0, reward_0, done_0, info_0) = final_status
 
+            if reward_0 != 0.51: 
+                with open("global_plots/successful_demos.txt", "a") as f:
+                    f.write(f"Demo {demo_0.demo_num} only has reward {reward_0}. \n")
+         
+
+
 
         # Extract second demonstration
         demo_1 = Demo(
@@ -954,6 +960,10 @@ class DemoAggregate:
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
 
             (obs_1, reward_1, done_1, info_1) = final_status
+
+            if reward_1 != 0.51: 
+                with open("global_plots/successful_demos.txt", "a") as f:
+                    f.write(f"Demo {demo_1.demo_num} only has reward {reward_1}.\n")
 
         
         # Only make the new artificial trajectory if the sources them
@@ -1028,7 +1038,7 @@ class DemoAggregate:
 
             # Create a single jump_point entry
             jump_point = {
-                "obs": jump_obs_stack.reshape,      # Shape: (self.add_jump_points, obs_dim)
+                "obs": jump_obs_stack,      # Shape: (self.add_jump_points, obs_dim)
                 "action": jump_action_stack # Shape: (self.add_jump_points, action_dim)
             }
 
@@ -1202,7 +1212,7 @@ def all_artificial_rollout(total_num_demos=None):
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
-    demos = DemoAggregate(source_trajectory=False, rollout_source=False, add_jump_points=1)
+    demos = DemoAggregate(source_trajectory=False, rollout_source=False, add_jump_points=0)
 
     if os.path.exists("sim_videos"):
         shutil.rmtree("sim_videos")
@@ -1307,15 +1317,6 @@ def single_artificial_rollout_for(d=0):
 
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
-
-    # Dictionary of all types of orderings:
-    order = {
-        'forward': ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
-        'reverse': ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
-        'demo0': ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
-        'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
-    }
-    
     closest_envs = demos.print_closest_envs(target_demo_num=d, num_demos=1)
     demo_num_0 = d
     demo_num_1 = closest_envs[0]['demo_idx']
@@ -1323,7 +1324,7 @@ def single_artificial_rollout_for(d=0):
     start_0 = EPISODE_STARTS[demo_num_0]
     start_1 = EPISODE_STARTS[demo_num_1]
 
-    ordering = order['forward']
+    ordering = demos.order['forward']
     forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="f")
     if forward_reward != 0:
         print(f"For demo {d}, forward worked with reward {forward_reward}")
@@ -1331,7 +1332,7 @@ def single_artificial_rollout_for(d=0):
         with open("global_plots/successful_demos.txt", "a") as f:
             f.write(f"Demo {d} forward worked with reward {forward_reward}.\n")
 
-    ordering = order['reverse']
+    ordering = demos.order['reverse']
     reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
     custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="r")
     if reverse_reward != 0:
@@ -1390,8 +1391,8 @@ def single_demo_rollout(d=0):
     custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
 def main():
 
-    # single_artificial_rollout_for(d=3)
-    all_artificial_rollout(total_num_demos=20)
+    single_artificial_rollout_for(d=2)
+    # all_artificial_rollout(total_num_demos=20)
 
 if __name__ == "__main__":
     main()
