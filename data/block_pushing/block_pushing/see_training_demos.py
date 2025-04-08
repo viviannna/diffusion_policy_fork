@@ -212,6 +212,8 @@ class Demo:
         # This will be populated by label_segments_from_k()
         self.labels = [''] * len(self.obs)
 
+        self.distance_jumped = 0 
+
     def set_switch_step_k(self, type_k="midpoint", switch_step_k=None):
         """
         Set a fixed or calculate the switch step k (A, B) for the demonstration.
@@ -665,7 +667,7 @@ class Demo:
 # ------------------------------------------------------------------
 
 class DemoAggregate:
-    def __init__(self, mode='abs', artificial_trajectory=True, artificial_rollout=True, source_trajectory=True, rollout_source=True):
+    def __init__(self, mode='abs', artificial_trajectory=True, artificial_rollout=True, source_trajectory=True, rollout_source=True, add_jump_points=0):
         """
         Open the desired zarr dataset. Store observations/actions for further use.
 
@@ -690,6 +692,41 @@ class DemoAggregate:
         self.artificial_rollout = artificial_rollout
         self.source_trajectory = source_trajectory
         self.rollout_source = rollout_source
+
+        self.success_num = 0
+        self.success_distance = 0
+        self.success_min = float("inf")
+        self.success_max = float("-inf")
+
+        self.half_success_num = 0
+        self.half_success_distance = 0
+        self.half_success_min = float("inf")
+        self.half_success_max = float("-inf")
+
+        self.fail_num = 0 
+        self.fail_distance = 0 
+        self.fail_min = float("inf")
+        self.fail_max = float("-inf")
+
+        self.rollout_new_obs = False
+
+        self.add_jump_points = add_jump_points
+
+        if self.add_jump_points != 0: 
+            self.order = {
+            'forward': ['demo0_pathA_before_k', "jump_point", "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
+            'reverse': ['demo1_pathA_before_k', "jump_point", "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+            'demo0': ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+            'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+            }
+        else:
+            self.order = {
+            'forward': ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
+            'reverse': ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+            'demo0': ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
+            'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
+            }
+
 
     def _get_blocks_as_dicts(self, obs):
         """
@@ -879,7 +916,9 @@ class DemoAggregate:
         
         demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory) 
         if not demo_0.valid_demo:
-            print(f"Demo {demo_num_0} is invalid. Cannot use it to construct an artificial path {demo_num_0}+{demo_num_1}_{direction}.")
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {demo_0.demo_num} is an invalid demo. Cannot use it to construct an artificial path {demo_num_0}. \n")
+
             return -1
 
         if self.rollout_source:
@@ -900,7 +939,10 @@ class DemoAggregate:
 
         demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory)
         if not demo_1.valid_demo:
-            print(f"Demo {demo_num_1} is invalid. Cannot use it to construct an artificial path {demo_num_0}+{demo_num_1}_{direction}.")
+
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {demo_1.demo_num} is an invalid demo. Cannot use it to construct an artificial path {demo_num_0}. \n")
+
             return -1
 
          # Trying to record the original demonstration
@@ -910,7 +952,6 @@ class DemoAggregate:
             num_steps = demo_1.end_timestep - demo_1.start_timestep + 1
 
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
-
 
             (obs_1, reward_1, done_1, info_1) = final_status
 
@@ -953,21 +994,64 @@ class DemoAggregate:
             }
         }
 
-        # == Construct Jump Point ==
-        last_action_first = segment_dict[ordering[0]]["action"][-1]
-        first_action_second = segment_dict[ordering[1]]["action"][0]
-        first_obs_second = segment_dict[ordering[1]]["obs"][0]
+        # Calculate the distance between the splice of segment 0 and segment 1
 
-        jump_action = (last_action_first + first_action_second) / 2.0 # calculate the midpoint action
-        jump_obs = first_obs_second # copy obs
+        first_segment_last_action = segment_dict[ordering[0]]["action"][-1] 
 
-        jump_point = {
-            "obs": jump_obs.reshape(1, -1),  # Reshape to (1, 16)
-            "action": np.array(jump_action, dtype=np.float32).reshape(1, -1)
-        }
+        if self.add_jump_points != 0:
+            assert ordering[1] == "jump_point"
+            second_segment_first_action = segment_dict[ordering[2]]["action"][0]
+        else:
+            second_segment_first_action = segment_dict[ordering[1]]["action"][0]
+            distance_jumped = np.linalg.norm(first_segment_last_action - second_segment_first_action)
 
-        segment_dict["jump_point"] = jump_point # add jump point to ordering # TODO: Double check that this jump point is actually useful. 
+            # Track the distance between the two segments 
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {demo_0.demo_num}: {demo_0.valid_demo}, Demo {demo_1.demo_num}: {demo_1.valid_demo}\n")
+                f.write(f"Distance jumped between {demo_0.demo_num} and {demo_1.demo_num} is {distance_jumped}.\n")
 
+        if self.add_jump_points != 0:
+
+
+            # Instead of just one point, we want to add self.add_jump_points number of points between the two segments.
+
+            first_segment_last_action = segment_dict[ordering[0]]["action"][-1]
+            second_segment_first_action = segment_dict[ordering[2]]["action"][0]
+            jump_obs = segment_dict[ordering[2]]["obs"][0]  # Same obs for all jump points
+
+            # Generate evenly spaced actions between the two (excluding endpoints)
+            jump_actions = np.linspace(first_segment_last_action, second_segment_first_action, self.add_jump_points + 2)[1:-1]
+
+            # Tile obs to match number of actions
+            jump_obs_stack = np.tile(jump_obs.reshape(1, -1), (self.add_jump_points, 1))
+            jump_action_stack = jump_actions.astype(np.float32).reshape(self.add_jump_points, -1)
+
+            # Create a single jump_point entry
+            jump_point = {
+                "obs": jump_obs_stack.reshape,      # Shape: (self.add_jump_points, obs_dim)
+                "action": jump_action_stack # Shape: (self.add_jump_points, action_dim)
+            }
+
+            segment_dict["jump_point"] = jump_point
+
+
+
+            # original with just midpoint: 
+            # jump_action = (first_segment_last_action + second_segment_first_action) / 2.0 # calculate the midpoint action
+            # jump_obs = segment_dict[ordering[2]]["obs"][0] # copy obs
+
+            # jump_point = {
+            #     "obs": jump_obs.reshape(1, -1),  # Reshape to (1, 16)
+            #     "action": np.array(jump_action, dtype=np.float32).reshape(1, -1)
+            # }
+
+            # segment_dict["jump_point"] = jump_point # add jump point to ordering # TODO: Double check that this jump point is actually useful. 
+
+            distance_jumped = np.linalg.norm(first_segment_last_action - jump_point["action"][0])
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {demo_0.demo_num}: {demo_0.valid_demo}, Demo {demo_1.demo_num}: {demo_1.valid_demo}\n")
+                f.write(f"Distance jumped between {demo_0.demo_num} and jump point is {distance_jumped}.\n")
+        
         # Dynamically construct the new trajectory
         new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
@@ -1023,6 +1107,24 @@ class DemoAggregate:
 
         artificial_demo.init_obs = init_obs
         artificial_demo.plot_artificial_path(custom_file_name=file_name, plot_trajectory=self.artificial_trajectory)
+
+        if reward == 0.51:
+            self.success_distance += distance_jumped
+            self.success_num += 1
+            self.success_min = min(self.success_min, distance_jumped)
+            self.success_max = max(self.success_max, distance_jumped)
+        elif reward == 0.49:
+            self.half_success_distance += distance_jumped
+            self.half_success_num += 1
+            self.half_success_min = min(self.half_success_min, distance_jumped)
+            self.half_success_max = max(self.half_success_max, distance_jumped)
+        elif reward == 0.0:
+            self.fail_distance += distance_jumped
+            self.fail_num += 1
+            self.fail_min = min(self.fail_min, distance_jumped)
+            self.fail_max = max(self.fail_max, distance_jumped)
+        else:
+            assert False, f"Unknown reward: {reward}"
 
         return reward 
 
@@ -1091,7 +1193,7 @@ class DemoAggregate:
             "-loop", "0", "global_plots/predicted_artificial_steps.mp4"
         ], check=True)
 
-def all_artificial_rollout(): 
+def all_artificial_rollout(total_num_demos=None): 
     """
     Creates an artificial trajectory from all demonstrations and their closest demonstration. Creates both the forward and reverse trajectory and rolls it out."""
         
@@ -1100,7 +1202,7 @@ def all_artificial_rollout():
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
-    demos = DemoAggregate()
+    demos = DemoAggregate(source_trajectory=False, rollout_source=False, add_jump_points=1)
 
     if os.path.exists("sim_videos"):
         shutil.rmtree("sim_videos")
@@ -1110,20 +1212,17 @@ def all_artificial_rollout():
     # NOTE: find_closest_envs makes lots of assumptions here about starting on the same path (touching the same block). Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
     # Dictionary of all types of orderings:
-    order = {
-        'forward': ['demo0_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
-        'reverse': ['demo1_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
-        'demo0': ['demo0_pathA_before_k', "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
-        'demo1': ['demo1_pathA_before_k', "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"]
-    }
     
+    
+
+
     
     # Forward
-    ordering = order['reverse']
 
     total_successful = 0 
-    
-    total_num_demos = len(EPISODE_STARTS) - 1
+
+    if total_num_demos is None:
+        total_num_demos = len(EPISODE_STARTS) - 1
     d = 0 
 
     with tqdm(total=total_num_demos, desc="Processing Demos", unit="demo") as pbar:
@@ -1136,43 +1235,58 @@ def all_artificial_rollout():
             start_0 = EPISODE_STARTS[demo_num_0]
             start_1 = EPISODE_STARTS[demo_num_1]
 
-            ordering = order['forward']
-            forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="f")
-            if forward_reward != 0:
-                print(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}")
+            ordering = demos.order['forward']
+            forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=False, direction="f")
 
-                with open("global_plots/successful_demos.txt", "a") as f:
-                    f.write(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}.\n")
+            print(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}")
+
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}.\n\n")
             total_successful += 1 if forward_reward > 0 else 0
 
-            ordering = order['reverse']
+            ordering = demos.order['reverse']
             reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
-            custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="r")
-            if reverse_reward != 0:
-            
-                print(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}")
+            custom_file_name=f"predicted_artificial", rollout_source_demos=False, direction="r")
+     
+            print(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}")
 
-                # create a txt log file and start appending which demos worked 
-                with open("global_plots/successful_demos.txt", "a") as f:
-                    f.write(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}.\n")
+            # create a txt log file and start appending which demos worked 
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}.\n\n")
 
             total_successful += 1 if reverse_reward > 0 else 0
+
+            with open("global_plots/successful_demos.txt", "a") as f:
+                f.write(f"\n\n")
 
             # Update progress bar
             pbar.update(1)
             print(f"Total successful: {total_successful}/{(d+1) * 2}")
 
-    print(f"Total successful: {total_successful}/{total_num_demos * 2}")
+    with open("global_plots/successful_demos.txt", "a") as f:
+        f.write(f"Total successful: {total_successful}/{total_num_demos * 2}\n")
 
+        avg_dst_successful = demos.success_distance / demos.success_num
+        avg_dst_half_successful = demos.half_success_distance / demos.half_success_num
+        avg_dst_failed = demos.fail_distance / demos.fail_num
 
-    # demos.create_artificial_demo(start_0=0, start_1=76912, ordering=ordering, custom_file_name=f"artificial")
-    # demo_num_0 = 0
-    # demo_num_1 = 669
+        f.write("Success statistics:\n")
+        f.write(f"Number of successful: {demos.success_num}\n")
+        f.write(f"Average distance for successful: {avg_dst_successful}\n")
+        f.write(f"Min distance for successful: {demos.success_min}\n")
+        f.write(f"Max distance for successful: {demos.success_max}\n\n")
 
-    # start_0 = EPISODE_STARTS[demo_num_0]
-    # start_1 = EPISODE_STARTS[demo_num_1]
-   
-    # demos.loop_through_ordering(ordering, group_name="artificial")
+        f.write("Half success statistics:\n")
+        f.write(f"Number of half successful: {demos.half_success_num}\n")
+        f.write(f"Average distance for half successful: {avg_dst_half_successful}\n")
+        f.write(f"Min distance for half successful: {demos.half_success_min}\n")
+        f.write(f"Max distance for half successful: {demos.half_success_max}\n\n")
+
+        f.write("Failure statistics:\n")
+        f.write(f"Number of failed: {demos.fail_num}\n")
+        f.write(f"Average distance for failed: {avg_dst_failed}\n")
+        f.write(f"Min distance for failed: {demos.fail_min}\n")
+        f.write(f"Max distance for failed: {demos.fail_max}\n\n")
 
 def single_artificial_rollout_for(d=0): 
 
@@ -1215,7 +1329,7 @@ def single_artificial_rollout_for(d=0):
         print(f"For demo {d}, forward worked with reward {forward_reward}")
 
         with open("global_plots/successful_demos.txt", "a") as f:
-            f.write(f"Demo {d} worked forward worked with reward {forward_reward}.\n")
+            f.write(f"Demo {d} forward worked with reward {forward_reward}.\n")
 
     ordering = order['reverse']
     reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
@@ -1276,7 +1390,8 @@ def single_demo_rollout(d=0):
     custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
 def main():
 
-    single_artificial_rollout_for(d=3)
+    # single_artificial_rollout_for(d=3)
+    all_artificial_rollout(total_num_demos=20)
 
 if __name__ == "__main__":
     main()
