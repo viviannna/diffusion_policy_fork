@@ -279,9 +279,6 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
         assert action_dict[step][0] == curr_action[0][0]
         assert action_dict[step][1] == curr_action[0][1]
 
-        if step == 3 and video_name== "artificial_trajectory_3+659_f": 
-            print("break!")
-
         # Take a step in the environment
         obs, reward, done, info = env.step(curr_action)
 
