@@ -1032,14 +1032,6 @@ class DemoAggregate:
 
         # NOTE: NEED TO ALSO APPEND TO EPSIODE_ENDS and update the zarr file for it to be useful for training
 
-
-        # Need to figure out what block I touch first in this rollout. I suppose I could just chunk this artificial trajectory. I shtere an easier way.. ? I mean cause all I have at this point are just the steps that I want it to to take but no observations. 
-
-        # wait i dont need any of this. based on the order, i know which demo that is going first and i also know the pivot point so i just get the first demo if its less than the pivot point then i use that one's first block touch as the first touch. if its greater than the pivot point then i use the second one's first touch as the first touch.
-
-        # if ordering[0] is demo0 then give me demo1.obs[0] as the first touch. if ordering[0] is demo1 then give me demo0.obs[0] as the first touch.
-        # needs to contain
-
         if "demo0" in ordering[0]:
             init_obs = demo_1.obs[demo_1.start_timestep]
         else:
@@ -1057,22 +1049,8 @@ class DemoAggregate:
             episode_ends = np.array(self.zarr_abs['meta']['episode_ends'][-1] + (num_steps))
 
 
-            # self.add_demo(new_obs, new_action, episode_ends ) # TODO Update this but it seems to add bugs to my code. Observations look very different. 
+            # self.add_demo(new_obs, new_action, episode_ends ) # TODO: Get this working. Editing the zarr seems to introduce bugs to the code (observations end up looking very different.) 
 
-
-            # dump final status into a file? this is really only userful if you're doing a single run otherwise it gets constantly overriden. 
-            # with open("global_plots/final_status.txt", "w") as f:
-            #     f.write(f"Artificial trajectory created from demos {demo_num_0} and {demo_num_1} with ordering {ordering}\n")
-            #     f.write("Obs:")
-            #     f.write(f"{obs}\n")
-            #     f.write("Reward:")
-            #     f.write(f"{reward}\n")
-            #     f.write("Done:")
-            #     f.write(f"{done}\n")
-            #     f.write("Info:")
-            #     f.write(f"{info}\n")
-                # f.write(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
-        
 
         # NOTE: All below this line should really only be done if the reward is above a certain threshold.
         # Append the new demo to obs and action datasets and plot it 
@@ -1377,12 +1355,6 @@ def main():
 
     single_artificial_rollout_for(d=3)
 
-
-   
-    # all_artificial_rollout()
-
-    # single_demo_rollout(d=103)
-    
 
 if __name__ == "__main__":
     main()
