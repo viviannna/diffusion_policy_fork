@@ -199,9 +199,16 @@ class Demo:
         self.pivot_point = None
         self.both_blocks = None
 
+        self.first_touch_0 = None
+        self.first_touch_1 = None
+        self.valid_demo = True
+
         # If you have a special "switch step" concept
         self.switch_step_A = None
         self.switch_step_B = None
+
+        # Init obs
+        self.init_obs = None
 
         # This will be populated by label_segments_from_k()
         self.labels = [''] * len(self.obs)
@@ -368,7 +375,8 @@ class Demo:
                     self.first_touch_1 = step
                 break  # Stop at the first touch after the pivot
 
-        assert self.first_touch_0 and self.first_touch_1
+        if self.first_touch_0 is None or self.first_touch_1 is None: 
+            self.valid_demo = False
 
     def calculate_block_touches(self):
         """
@@ -422,6 +430,9 @@ class Demo:
 
         self.calculate_block_touches()
         self.set_pivot(pivot_type=pivot_type)
+        if not self.valid_demo:
+            return # Skip the rest of the calculations if the demo is invalid
+
         self.set_switch_step_k(type_k=type_k, switch_step_k=switch_step_k)
         
         print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
@@ -618,6 +629,9 @@ class Demo:
             pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
 
         self.calculate_key_points(pivot_type=pivot, type_k=type_k)
+        if not self.valid_demo:
+            return 
+
         self.label_segments_from_k()
         self.color_code_at_k(plot_trajectory=plot_trajectory)
     
@@ -631,7 +645,11 @@ class Demo:
     def plot_artificial_path(self, custom_file_name=None, plot_trajectory=False):
 
         if plot_trajectory:
-            pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
+
+            if self.init_obs is None:
+                pu.setup_full_trajectory_plot(self.obs[self.start_timestep], self.demo_num)
+            else:
+                pu.setup_full_trajectory_plot(self.init_obs, self.demo_num)
 
         for step in range(self.start_timestep, self.end_timestep +1 ):
             curr_action = self.action[step]
@@ -708,11 +726,11 @@ class DemoAggregate:
 
         """
         if mode == 'abs':
-            self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r')
+            self.zarr_abs = zarr.open("data/block_pushing/multimodal_push_seed_abs.zarr", mode='r+')
             self.obs = self.zarr_abs['data']['obs']
             self.action = self.zarr_abs['data']['action']
         elif mode == 'rel':
-            self.zarr_rel = zarr.open("data/block_pushing/multimodal_push_seed.zarr", mode='r')
+            self.zarr_rel = zarr.open("data/block_pushing/multimodal_push_seed.zarr", mode='r+')
             self.obs = self.zarr_rel['data']['obs']
             self.action = self.zarr_rel['data']['action']
         else:
@@ -901,6 +919,7 @@ class DemoAggregate:
 
         print(f"\n\nCreating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
 
+        
         # Extract first demonstration
         demo_0 = Demo(
             obs=self.obs,                  # (114962, 16)
@@ -909,8 +928,11 @@ class DemoAggregate:
             end_timestep=end_0,
             demo_num=demo_num_0
         )
-
+        
         demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory) 
+        if not demo_0.valid_demo:
+            print(f"Demo {demo_num_0} is invalid. Cannot use it to construct an artificial path {demo_num_0}+{demo_num_1}_{direction}.")
+            return -1
 
         if self.source_rollout:
             init_obs = demo_0.obs[demo_0.start_timestep]
@@ -934,6 +956,9 @@ class DemoAggregate:
         )
 
         demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory)
+        if not demo_1.valid_demo:
+            print(f"Demo {demo_num_1} is invalid. Cannot use it to construct an artificial path {demo_num_0}+{demo_num_1}_{direction}.")
+            return -1
 
          # Trying to record the original demonstration
         if self.source_rollout:
@@ -947,8 +972,6 @@ class DemoAggregate:
 
         
         # Only make the new artificial trajectory if the sources them
-
-
 
         # Store extracted segments in a dictionary with 4 segments per demo
         segment_dict = {
@@ -986,68 +1009,24 @@ class DemoAggregate:
             }
         }
 
-        # # TODO: Add some lines between the the jump
-        # # Based on the ordering:
-        # # We jump between the last observation of the 0th segment and the first observation of the 1st segment
-        # before_jump = segment_dict[ordering[0]]['obs'][-1]
-        # after_jump = segment_dict[ordering[1]]['obs'][0]
+        # == Construct Jump Point ==
+        last_action_first = segment_dict[ordering[0]]["action"][-1]
+        first_action_second = segment_dict[ordering[1]]["action"][0]
+        first_obs_second = segment_dict[ordering[1]]["obs"][0]
 
-        # # Try getting an (x,y) point between before_jump[6], before_jump[7] and after_jump[6], after_jump[7]. Create a new observation where its the same observation of after_jump but with [6] and [7] changed to the average of the two.
+        jump_action = (last_action_first + first_action_second) / 2.0 # calculate the midpoint action
+        jump_obs = first_obs_second # copy obs
 
-        # new_jump_obs = np.copy(after_jump)
-        # new_jump_obs[6] = (before_jump[6] + after_jump[6]) / 2
-        # new_jump_obs[7] = (before_jump[7] + after_jump[7]) / 2
+        jump_point = {
+            "obs": jump_obs.reshape(1, -1),  # Reshape to (1, 16)
+            "action": np.array(jump_action, dtype=np.float32).reshape(1, -1)
+        }
 
-        # # Get a vector between before_jump [6], before_jump[7] and new_jump_obs[6], new_jump_obs[7] and pass it as an action
-        # new_jump_action = np.array([new_jump_obs[6] - before_jump[6], new_jump_obs[7] - before_jump[7]])
-
-
-        # # Insert the new jump point into the ordering between 0 and 1
-
-        # new_obs = [segment_dict[ordering[0]]["obs"]]  # Start with first segment
-        # new_obs.append(np.expand_dims(new_jump_obs, axis=0))  # Insert the jump point
-        # # Append the rest of the segments in order
-        # new_obs.extend([segment_dict[segment]["obs"] for segment in ordering[1:]])
-        # # Concatenate along axis 0 to form the final trajectory
-        # new_obs = np.concatenate(new_obs, axis=0)
-
-        # new_action = [segment_dict[ordering[0]]["action"]]  # Start with first segment
-        # new_action.append(np.expand_dims(new_jump_action, axis=0))  # Insert the jump point
-        # # Append the rest of the segments in order
-        # new_action.extend([segment_dict[segment]["action"] for segment in ordering[1:]])
-
-
-        # # Identify the jump points
-        # before_jump = segment_dict[ordering[0]]['obs'][-1]
-        # after_jump = segment_dict[ordering[1]]['obs'][0]
-
-        # # Create a new observation by averaging the (x, y) coordinates
-        # new_jump_obs = np.copy(after_jump)
-        # new_jump_obs[6] = (before_jump[6] + after_jump[6]) / 2
-        # new_jump_obs[7] = (before_jump[7] + after_jump[7]) / 2
-
-        # # Compute the action vector between before_jump and new_jump_obs
-        # new_jump_action = np.array([new_jump_obs[6] - before_jump[6], new_jump_obs[7] - before_jump[7]])
-
-        
-        # # Construct the new observation sequence
-        # new_obs = np.concatenate(
-        #     [segment_dict[ordering[0]]["obs"], np.expand_dims(new_jump_obs, axis=0)]
-        #     + [segment_dict[segment]["obs"] for segment in ordering[1:]],
-        #     axis=0
-        # )
-
-        # # Construct the new action sequence
-        # new_action = np.concatenate(
-        #     [segment_dict[ordering[0]]["action"], np.expand_dims(new_jump_action, axis=0)]
-        #     + [segment_dict[segment]["action"] for segment in ordering[1:]],
-        #     axis=0
-        # )
-
+        segment_dict["jump_point"] = jump_point # add jump point to ordering # TODO: Double check that this jump point is actually useful. 
 
         # == Regular construction of the new trajectory ==
         # Dynamically construct the new trajectory
-    
+
         new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
         new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
 
@@ -1066,12 +1045,20 @@ class DemoAggregate:
         else:
             init_obs = demo_0.obs[demo_0.start_timestep]
 
+        
+
         num_steps = len(new_action)
 
+        final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}") 
 
-       
-        final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=new_action, video_name=f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}")
         (obs, reward, done, info) = final_status
+
+        if reward >= 1:
+            episode_ends = np.array(self.zarr_abs['meta']['episode_ends'][-1] + (num_steps))
+
+
+            # self.add_demo(new_obs, new_action, episode_ends ) # TODO Update this but it seems to add bugs to my code. Observations look very different. 
+
 
             # dump final status into a file? this is really only userful if you're doing a single run otherwise it gets constantly overriden. 
             # with open("global_plots/final_status.txt", "w") as f:
@@ -1100,6 +1087,8 @@ class DemoAggregate:
         new_demo_end = new_demo_start + (len(new_obs) - 1) # The -1 is an artifact of the way we use EPISODE_STARTS. Episode ends should be the next value - 1 (but then our episode ends are inclusive so we bump the range in our loops by one)
         EPISODE_STARTS.append(new_demo_end + 1)
 
+        # I'm going to keep this for now because that's just the way I started plotting things but this really isn't necessary, can be optimized. (I don't need a whole copy of the obs.)
+
         # Process the new artificial demo
         new_demo_num = len(EPISODE_STARTS)
         artificial_demo = Demo(
@@ -1112,11 +1101,28 @@ class DemoAggregate:
         # TODO: Don't need to plot when creating the demonstrations at scale. 
 
         file_name = f"artificial_trajectory_{demo_num_0}+{demo_num_1}_{direction}"
+
+        artificial_demo.init_obs = init_obs
         artificial_demo.plot_artificial_path(custom_file_name=file_name, plot_trajectory=self.artificial_trajectory)
 
         return reward 
-        
-       
+
+
+    def add_demo(self, new_obs, new_action, episode_ends):
+
+        print(f"Original obs shape: {self.zarr_abs['data']['obs'].shape}")
+        print(f"Original action shape: {self.zarr_abs['data']['action'].shape}")
+        print(f"Original episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
+        print(f"Original episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")
+
+        self.zarr_abs['data']['obs'].append(new_obs)
+        self.zarr_abs['data']['action'].append(new_action)
+        self.zarr_abs['meta']['episode_ends'].append(episode_ends, axis=0)
+
+        print(f"New obs shape: {self.zarr_abs['data']['obs'].shape}")
+        print(f"New action shape: {self.zarr_abs['data']['action'].shape}")
+        print(f"New episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
+        print(f"New episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")       
 
     def loop_through_ordering(self, ordering, group_name="artificial"):
         """
@@ -1252,7 +1258,11 @@ def all_artificial_rollout():
 
 
 
-def single_artificial_rollout(d=0): 
+def single_artificial_rollout_for(d=0): 
+
+    """
+    Creates an artificial trajectory from d and its closest demonstration. Creates both the forward and reverse trajectory and rolls it out. 
+    """
         
     # Clear old plots
     if os.path.exists("global_plots"):
@@ -1350,8 +1360,6 @@ def single_artificial_trajectory(d=1):
 
 def single_demo_rollout(d=0): 
 
-
-
     demos = DemoAggregate()
 
 
@@ -1367,10 +1375,13 @@ def single_demo_rollout(d=0):
 def main():
 
 
-    # single_artificial_rollout(d=103)
+    single_artificial_rollout_for(d=3)
+
+
+   
     # all_artificial_rollout()
 
-    single_demo_rollout(d=103)
+    # single_demo_rollout(d=103)
     
 
 if __name__ == "__main__":
