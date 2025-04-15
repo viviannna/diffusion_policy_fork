@@ -155,6 +155,7 @@ EPISODE_STARTS = [0,   104,    227,    352,    461,    587,    695,    816,    9
        114155, 114278, 114383, 114499, 114611, 114739, 114851, 114962]
 
 
+
 import numpy as np
 import os
 import shutil
@@ -212,7 +213,71 @@ class Demo:
         # This will be populated by label_segments_from_k()
         self.labels = [''] * len(self.obs)
 
-        self.distance_jumped = 0 
+        self.distance_jumped = 0
+
+        # This is determined by is_successful_demo()
+        self.succeeds = None
+        self.final_reward = None
+
+    def is_successful_demo(self):
+        """
+        Checks if it's a valid demo by just rolling out the last observation and action
+        """
+
+        assert False, "This approach doesn't work."
+
+        # last_obs = self.obs[self.end_timestep]
+        # last_action = self.action[self.end_timestep]
+
+        # Take the last two observations 
+        last_obs = self.obs[self.end_timestep-2]
+        last_action = self.action[self.start_timestep:self.end_timestep + 1][-2:]  # Last two actions
+       
+        # the obs doesn't match the obs from rollout
+
+        (obs, reward, done, info) = custom_runner.rollout_demo(init_obs=last_obs, num_steps=2, action_dict=last_action, video_name=f"is_successful_demo_{self.demo_num}.mp4", plot_steps=True)
+
+        # This actually doesn't work because the info isn't udpated :(). Anyways I think we would probably want to save a list of successful demos at some point and splice it this way. 
+
+        self.final_reward = reward
+        self.succeeds = (reward > 0.5)
+
+        return reward > 0.5 
+    
+    # def compute_halfway_step(self, start_step, end_step, obs, origin, label):
+    #     total_distance = 0
+    #     cumulative_distance = 0
+
+    #     # First pass: compute total distance
+    #     for step in range(start_step, end_step + 1):
+    #         if step == start_step:
+    #             step_distance = pu.get_step_distance(obs[step], origin)
+    #         else:
+    #             step_distance = pu.get_step_distance(obs[step], obs[step - 1])
+    #         total_distance += step_distance
+
+    #     half_distance = total_distance / 2
+
+    #     # Second pass: find step at which half distance is covered
+    #     for step in range(start_step, end_step + 1):
+    #         if step == start_step:
+    #             step_distance = pu.get_step_distance(obs[step], origin)
+    #         else:
+    #             step_distance = pu.get_step_distance(obs[step], obs[step - 1])
+
+    #         cumulative_distance += step_distance
+
+    #         percent = 100 * cumulative_distance / total_distance
+    #         print(f"[{label}] step {step}: step_distance={step_distance:.4f}, "
+    #             f"cumulative={cumulative_distance:.4f}/{total_distance:.4f} "
+    #             f"({percent:.2f}%), target=50% (half_distance={half_distance:.4f})")
+
+    #         if cumulative_distance >= half_distance:
+    #             return step - start_step  # Relative to segment start
+
+    #     return None  # Just in case nothing is found
+
+
 
     def set_switch_step_k(self, type_k="midpoint", switch_step_k=None):
         """
@@ -240,10 +305,12 @@ class Demo:
                     step_distance = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+
+                
         
                 total_distance += step_distance
             
-            half_distance = total_distance / 2  # Midpoint in terms of distance
+            half_distance = total_distance *0.4  # Midpoint in terms of distance
             cumulative_distance = 0
 
 
@@ -253,9 +320,15 @@ class Demo:
                 else:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance += step_distance
+
+                print(f"[A] step {step}: step_distance={step_distance:.4f}, total_distance={total_distance:.4f}, "
+                f"cumulative={cumulative_distance:.4f} ({100 * cumulative_distance / total_distance:.2f}%), "
+                f"target=50% (half_distance={half_distance:.4f})")
+
                 if cumulative_distance >= half_distance:
                     # switch_step_A is relative to zero
                     self.switch_step_A = (step - self.start_timestep)
+                    print(f"switch_step_A: {self.switch_step_A}")
                     break
 
             # Compute cumulative distance for switch_step_B
@@ -267,10 +340,12 @@ class Demo:
                     step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
+                
+                
 
                 total_distance_B += step_distance_B
 
-            half_distance_B = total_distance_B / 2  # Midpoint in terms of distance for block B
+            half_distance_B = total_distance_B * 0.4 # Midpoint in terms of distance for block B
             cumulative_distance_B = 0
 
             for step in range(self.pivot_point, second_touched + 1):
@@ -278,13 +353,23 @@ class Demo:
                     step_distance_B = pu.get_step_distance(self.obs[step], np.array([0.3, -0.4]))
                 else:
                     step_distance_B = pu.get_step_distance(self.obs[step], self.obs[step - 1])
-                
+
+            
+
                 cumulative_distance_B += step_distance_B
+
+                print(f"[B] step {step}: step_distance={step_distance_B:.4f}, total_distance={total_distance_B:.4f}, "
+                f"cumulative={cumulative_distance_B:.4f} ({100 * cumulative_distance_B / total_distance_B:.2f}%), "
+                f"target=50% (half_distance_B={half_distance_B:.4f})")
+
 
                 if cumulative_distance_B >= half_distance_B:
                     # switch_step_B is relative to zero
+                    
                     self.switch_step_B = (step - self.pivot_point)
+                    print(f"switch_step_B: {self.switch_step_B}")
                     break
+        
 
         assert self.switch_step_A is not None
         assert self.switch_step_B is not None
@@ -324,7 +409,8 @@ class Demo:
         for step in range(self.pivot_point, self.end_timestep + 1):
 
             curr_obs = self.obs[step]
-            touching_second = pu.is_touching_block(curr_obs)[self.second_placed_block]  # First touch of second block
+            init_obs = self.obs[self.start_timestep]
+            touching_second = pu.is_touching_block(curr_obs=curr_obs, init_obs=init_obs)[self.second_placed_block]  # First touch of second block
 
             if touching_second:
                 if self.second_placed_block == 0:
@@ -334,6 +420,7 @@ class Demo:
                 break  # Stop at the first touch after the pivot
 
         if self.first_touch_0 is None or self.first_touch_1 is None: 
+            # TODO: This needs to also be based on whether or not it reached the goal 
             self.valid_demo = False
 
     def calculate_block_touches(self):
@@ -346,10 +433,11 @@ class Demo:
 
         for step in range(self.start_timestep, self.end_timestep + 1):
             curr_obs = self.obs[step]
+            init_obs = self.obs[self.start_timestep]
             curr_action = self.action[step]
 
             done, b0_in_target, b1_in_target = pu.is_successful(curr_obs)
-            touching_0, touching_1 = pu.is_touching_block(curr_obs)
+            touching_0, touching_1 = pu.is_touching_block(init_obs=init_obs, curr_obs=curr_obs)
 
             if not touched_0 and touching_0:
                 self.first_touch_0 = step
@@ -393,9 +481,17 @@ class Demo:
 
         self.set_switch_step_k(type_k=type_k, switch_step_k=switch_step_k)
         
-        print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
-              f"one_block={self.one_block}, pivot={self.pivot_point}, "
-              f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
+        # print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
+        #       f"one_block={self.one_block}, pivot={self.pivot_point}, "
+        #       f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
+        # Account for the starting step
+
+        print(f"[Demo {self.demo_num}] start_timestep={self.start_timestep}, end_timestep={self.end_timestep} no_blocks={self.no_blocks - self.start_timestep}, "
+              f"one_block={self.one_block - self.start_timestep}, pivot={self.pivot_point - self.start_timestep}, "
+              f"both_blocks={self.both_blocks - self.start_timestep}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
+
+        # print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks - self.start_timestep-1}, "f"one_block={self.one_block - self.start_timestep-1}, pivot={self.pivot_point - self.start_timestep-1}, "
+        #       f"both_blocks={self.both_blocks - self.start_timestep-1}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
         
 
     def label_segments_from_k(self):
@@ -530,10 +626,11 @@ class Demo:
 
             if plot_trajectory:
                 if step == self.first_touch_0:
-                    print(f"First touch 0 at {step}")
+                    # Print first touch (accounting for the fact that we start at start_timestep)
+                    print(f"First touch 0 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
                 elif step == self.first_touch_1:
-                    print(f"First touch 1 at {step}")
+                    print(f"First touch 1 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
 
             # Assign colors based on labels
@@ -554,13 +651,97 @@ class Demo:
                     pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
+
+    def color_code_at_touch_block(self, plot_trajectory=False):
+        """
+        Colors the path with respect to 'first_touch_0' and 'first_touch_1', using colors based on labels.
+
+        Creates a dictionary `label_color_dict` where keys are labels and values are their corresponding colors.
+
+        Args:
+            label_color_dict (dict): Mapping of labels (from `label_segments_from_k`) to colors.
+        """
+        assert self.switch_step_A is not None
+        assert self.pivot_point is not None
+        assert self.labels is not None
+        assert self.pivot_point is not None
+        assert self.switch_step_B is not None
+
+        # label_color_dict = {
+        #     'pathA_before_k': 'red',
+        #     'pathA_after_k': 'orange',
+        #     'pathB_before_k': 'blue',
+        #     'pathB_after_k': 'purple',
+        #     'switch_step_A': 'cyan',
+        #     'switch_step_B': 'cyan'
+        # }
+
+
+
+        for step in range(self.start_timestep, self.end_timestep + 1):
+            curr_action = self.action[step]
+
+            # Handle special cases for first touches
+
+            if plot_trajectory:
+                if step == self.first_touch_0:
+                    # Print first touch (accounting for the fact that we start at start_timestep)
+                    print(f"First touch 0 at {step-self.start_timestep}")
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
+                elif step == self.first_touch_1:
+                    print(f"First touch 1 at {step-self.start_timestep}")
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
+
+            # Assign colors based on labels
+            label = self.labels[step]
+
+            # Handle special cases for switch steps
+            # if step == self.switch_step_A + self.start_timestep:
+            #     color = label_color_dict.get('switch_step_A', 'gray')
+            # elif step == self.pivot_point + self.switch_step_B:
+            #     color = label_color_dict.get('switch_step_B', 'gray')
+            # else:
+            #     color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
+
+
+            first_touched = min(self.first_touch_0, self.first_touch_1)
+            second_touched = max(self.first_touch_0, self.first_touch_1)
+
+
+
+            if step in range(self.start_timestep, first_touched):
+                color = "red"
+            # if step in range(first_touched, second_touched):
+            #     color = "grey"
+            elif step in range(self.pivot_point, second_touched):
+                color = "purple"
+
+            else:
+                color = "grey"
+
+            if step == self.switch_step_A + self.start_timestep:
+                color = "cyan"
+            elif step == self.pivot_point + self.switch_step_B:
+                color = "cyan"
+   
+
+            
+
+            if plot_trajectory:
+                pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color=color)
+
+                if step == self.pivot_point:
+                    pu.custom_label(demo_num=self.demo_num, custom_text=f"Pivot Point at ({curr_action[0]:.2f}, {curr_action[1]:.2f})", color='green')
+                    pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
+
+
     # ------------------------------------------------------------------
     # One-shot convenience  to calculate the key points of a single demo
     # and set up and finalize the full trajectory plot. (Individual steps 
     # are plotted in the color-coding methods.)
     # ------------------------------------------------------------------
 
-    def chunk_path(self, switch_step=None, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None, plot_trajectory=False):
+    def chunk_path(self, type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None, plot_trajectory=False):
         """
         Convenience method that for a single demonstration:
         - Initializes the global plot
@@ -571,9 +752,9 @@ class Demo:
 
         Parameters:
             switch_step_A: If not none, fixes the switch step to a specific value.
-            type_k: How k should be calculated. Options are {"fixed", "midpoint", "heuristic_middle"}
+            type_k: How k should be calculated. Options are {"fixed", "midpoint", "heuristic_middle"} (aka the jump point)
             pivot: How the pivot point should be calculated. Options are {"midpoint", "closest_to_base"}
-            dist: If not None, labels the distance from this environment to the target environment.
+            dist: If not None, labels the distance from this environment to the target environment. (Similarity measurement)
             target_num: If not None, corresponds to the target environment number you are comparing to. 
 
         Returns:
@@ -589,7 +770,10 @@ class Demo:
             return 
 
         self.label_segments_from_k()
-        self.color_code_at_k(plot_trajectory=plot_trajectory)
+        # self.color_code_at_k(plot_trajectory=plot_trajectory)
+        self.color_code_at_touch_block(plot_trajectory=plot_trajectory)
+
+    
     
         if dist is not None and target_num is not None:
             pu.label_environment_distance(current_num=self.demo_num, target_num=target_num, dist=dist)
@@ -629,9 +813,18 @@ class Demo:
             file_name = f"{custom_file_name}_{step}.png"
             pu.setup_full_trajectory_plot(self.obs[step], self.demo_num)
             curr_action = self.action[step]
+
+            # I want to get whether I am touching any block and add it to the plot
+            current_obs = self.obs[step]
+            init_obs = self.obs[self.start_timestep]
+            touching_0, touching_1 = pu.is_touching_block(init_obs=init_obs, curr_obs=current_obs)
+            block_text = f"Touching Block 0: {touching_0}, Touching Block 1: {touching_1}"
+            pu.custom_label(demo_num=self.demo_num, custom_text=block_text, color='black')
+
             pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color='gradient', start_timestep=self.start_timestep, label_step=True)
             pu.finalize_full_trajectory_plot(obs=self.obs[step], demo_num=self.demo_num, coloring="gradient", custom_file_name=file_name)
 
+        # Make a video compiling all the steps
         subprocess.run([
         "ffmpeg", "-framerate", "2", "-start_number", str(self.start_timestep),
         "-i", f"global_plots/{custom_file_name}_%d.png",
@@ -914,7 +1107,7 @@ class DemoAggregate:
             demo_num=demo_num_0
         )
         
-        demo_0.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory) 
+        demo_0.chunk_path(type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory) 
         if not demo_0.valid_demo:
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"Demo {demo_0.demo_num} is an invalid demo. Cannot use it to construct an artificial path {demo_num_0}. \n")
@@ -943,7 +1136,7 @@ class DemoAggregate:
             demo_num=demo_num_1
         )
 
-        demo_1.chunk_path(switch_step=None, type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory)
+        demo_1.chunk_path(type_k="midpoint", pivot="closest_to_base", plot_trajectory=self.source_trajectory)
         if not demo_1.valid_demo:
 
             with open("global_plots/successful_demos.txt", "a") as f:
@@ -1305,15 +1498,10 @@ def single_artificial_rollout_for(d=0):
     """
         
     # Clear old plots
-    if os.path.exists("global_plots"):
-        shutil.rmtree("global_plots")
-    os.makedirs("global_plots", exist_ok=True)
+    
+    demos = DemoAggregate(add_jump_points=3)
 
-    demos = DemoAggregate()
-
-    if os.path.exists("sim_videos"):
-        shutil.rmtree("sim_videos")
-    os.makedirs("sim_videos")
+    
 
 
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
@@ -1378,9 +1566,10 @@ def single_artificial_trajectory(d=1):
 
 def single_demo_rollout(d=0): 
 
+
     demos = DemoAggregate()
 
-    demo = Demo(
+    demo = Demo(  
         obs=demos.obs,
         action=demos.action,
         start_timestep=EPISODE_STARTS[d],
@@ -1388,10 +1577,30 @@ def single_demo_rollout(d=0):
         demo_num=d
     )
 
-    custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
-def main():
+    (obs, reward, done, info) = custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
+    
+    demo.succeeds = reward > 0.5
+    print(f"Demo {d} finished with reward {reward}")
 
-    single_artificial_rollout_for(d=2)
+    if demo.succeeds:
+
+        demo.chunk_path(type_k="midpoint", pivot="closest_to_base", dist=None, target_num=None, plot_trajectory=True)
+        # demo.plot_each_step(custom_file_name=f"demo_{d}_each_step")
+
+
+def main():
+    
+    if os.path.exists("global_plots"):
+        shutil.rmtree("global_plots")
+    os.makedirs("global_plots", exist_ok=True)
+    if os.path.exists("sim_videos"):
+        shutil.rmtree("sim_videos")
+    os.makedirs("sim_videos")
+
+
+    # single_demo_rollout(d=10)
+    single_demo_rollout(d=11)
+    # single_artificial_rollout_for(d=10)
     # all_artificial_rollout(total_num_demos=20)
 
 if __name__ == "__main__":
