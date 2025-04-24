@@ -183,7 +183,7 @@ import shutil
 
 
 class Demo:
-    def __init__(self, obs, action, start_timestep, end_timestep, demo_num):
+    def __init__(self, obs, action, start_timestep, end_timestep, demo_num, add_jump_points=False):
         """
         Initialize with required data and parameters.
         """
@@ -219,6 +219,9 @@ class Demo:
         self.succeeds = None
         self.final_reward = None
 
+        self.add_jump_points = add_jump_points
+        
+
     def is_successful_demo(self):
         """
         Checks if it's a valid demo by just rolling out the last observation and action
@@ -244,41 +247,6 @@ class Demo:
 
         return reward > 0.5 
     
-    # def compute_halfway_step(self, start_step, end_step, obs, origin, label):
-    #     total_distance = 0
-    #     cumulative_distance = 0
-
-    #     # First pass: compute total distance
-    #     for step in range(start_step, end_step + 1):
-    #         if step == start_step:
-    #             step_distance = pu.get_step_distance(obs[step], origin)
-    #         else:
-    #             step_distance = pu.get_step_distance(obs[step], obs[step - 1])
-    #         total_distance += step_distance
-
-    #     half_distance = total_distance / 2
-
-    #     # Second pass: find step at which half distance is covered
-    #     for step in range(start_step, end_step + 1):
-    #         if step == start_step:
-    #             step_distance = pu.get_step_distance(obs[step], origin)
-    #         else:
-    #             step_distance = pu.get_step_distance(obs[step], obs[step - 1])
-
-    #         cumulative_distance += step_distance
-
-    #         percent = 100 * cumulative_distance / total_distance
-    #         print(f"[{label}] step {step}: step_distance={step_distance:.4f}, "
-    #             f"cumulative={cumulative_distance:.4f}/{total_distance:.4f} "
-    #             f"({percent:.2f}%), target=50% (half_distance={half_distance:.4f})")
-
-    #         if cumulative_distance >= half_distance:
-    #             return step - start_step  # Relative to segment start
-
-    #     return None  # Just in case nothing is found
-
-
-
     def set_switch_step_k(self, type_k="midpoint", switch_step_k=None):
         """
         Set a fixed or calculate the switch step k (A, B) for the demonstration.
@@ -310,7 +278,7 @@ class Demo:
         
                 total_distance += step_distance
             
-            half_distance = total_distance *0.4  # Midpoint in terms of distance
+            half_distance = total_distance *0.45  # Midpoint in terms of distance
             cumulative_distance = 0
 
 
@@ -321,16 +289,18 @@ class Demo:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance += step_distance
 
-                print(f"[A] step {step}: step_distance={step_distance:.4f}, total_distance={total_distance:.4f}, "
-                f"cumulative={cumulative_distance:.4f} ({100 * cumulative_distance / total_distance:.2f}%), "
-                f"target=50% (half_distance={half_distance:.4f})")
+                # print(f"[A] step {step}: step_distance={step_distance:.4f}, total_distance={total_distance:.4f}, "
+                # f"cumulative={cumulative_distance:.4f} ({100 * cumulative_distance / total_distance:.2f}%), "
+                # f"target=50% (half_distance={half_distance:.4f})")
 
                 if cumulative_distance >= half_distance:
                     # switch_step_A is relative to zero
                     self.switch_step_A = (step - self.start_timestep)
-                    print(f"switch_step_A: {self.switch_step_A}")
+                    # print(f"switch_step_A: {self.switch_step_A}")
                     break
 
+
+            # This is buggy if for some reason we never register touching the second block??? It's because we accidentally bump into it? 
             # Compute cumulative distance for switch_step_B
             cumulative_distance_B = 0
             total_distance_B = 0
@@ -345,7 +315,7 @@ class Demo:
 
                 total_distance_B += step_distance_B
 
-            half_distance_B = total_distance_B * 0.4 # Midpoint in terms of distance for block B
+            half_distance_B = total_distance_B * 0.45 # Midpoint in terms of distance for block B
             cumulative_distance_B = 0
 
             for step in range(self.pivot_point, second_touched + 1):
@@ -358,16 +328,16 @@ class Demo:
 
                 cumulative_distance_B += step_distance_B
 
-                print(f"[B] step {step}: step_distance={step_distance_B:.4f}, total_distance={total_distance_B:.4f}, "
-                f"cumulative={cumulative_distance_B:.4f} ({100 * cumulative_distance_B / total_distance_B:.2f}%), "
-                f"target=50% (half_distance_B={half_distance_B:.4f})")
+                # print(f"[B] step {step}: step_distance={step_distance_B:.4f}, total_distance={total_distance_B:.4f}, "
+                # f"cumulative={cumulative_distance_B:.4f} ({100 * cumulative_distance_B / total_distance_B:.2f}%), "
+                # f"target=50% (half_distance_B={half_distance_B:.4f})")
 
 
                 if cumulative_distance_B >= half_distance_B:
                     # switch_step_B is relative to zero
                     
                     self.switch_step_B = (step - self.pivot_point)
-                    print(f"switch_step_B: {self.switch_step_B}")
+                    # print(f"switch_step_B: {self.switch_step_B}")
                     break
         
 
@@ -517,6 +487,10 @@ class Demo:
                 self.labels[step] = 'pathA_before_k'
             elif (self.switch_step_A + self.start_timestep) < step <= self.pivot_point:
                 self.labels[step] = 'pathA_after_k'
+
+
+            # Account for jump points
+            
             
             if self.pivot_point < step <= (self.pivot_point + self.switch_step_B):
                 self.labels[step] = 'pathB_before_k'
@@ -644,6 +618,9 @@ class Demo:
             else:
                 color = label_color_dict.get(label, 'gray')  # Default to gray if label is missing
 
+            # Check if they are jumping points
+
+
             if plot_trajectory:
                 pu.plot_effector_actions(action=curr_action, run_step=step, demo_num=self.demo_num, color=color)
 
@@ -770,8 +747,8 @@ class Demo:
             return 
 
         self.label_segments_from_k()
-        # self.color_code_at_k(plot_trajectory=plot_trajectory)
-        self.color_code_at_touch_block(plot_trajectory=plot_trajectory)
+        self.color_code_at_k(plot_trajectory=plot_trajectory)
+        # self.color_code_at_touch_block(plot_trajectory=plot_trajectory)
 
     
     
@@ -904,8 +881,9 @@ class DemoAggregate:
         self.rollout_new_obs = False
 
         self.add_jump_points = add_jump_points
+        self.num_jump_points = None # Updated when jump points are added
 
-        if self.add_jump_points != 0: 
+        if self.add_jump_points: 
             self.order = {
             'forward': ['demo0_pathA_before_k', "jump_point", "demo1_pathA_after_k", "demo1_pathB_before_k", "demo1_pathB_after_k"],
             'reverse': ['demo1_pathA_before_k', "jump_point", "demo0_pathA_after_k", "demo0_pathB_before_k", "demo0_pathB_after_k"],
@@ -1120,6 +1098,8 @@ class DemoAggregate:
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_0.action[demo_0.start_timestep:demo_0.end_timestep+1], video_name=f"demo_{demo_num_0}")
             (obs_0, reward_0, done_0, info_0) = final_status
 
+            demo_0.valid_demo = reward_0 > 0.5
+
             if reward_0 != 0.51: 
                 with open("global_plots/successful_demos.txt", "a") as f:
                     f.write(f"Demo {demo_0.demo_num} only has reward {reward_0}. \n")
@@ -1153,6 +1133,8 @@ class DemoAggregate:
             final_status = custom_runner.rollout_demo(init_obs=init_obs, num_steps=num_steps, action_dict=demo_1.action[demo_1.start_timestep:demo_1.end_timestep+1], video_name=f"demo_{demo_num_1}")
 
             (obs_1, reward_1, done_1, info_1) = final_status
+
+            demo_1.valid_demo = reward_1 > 0.5
 
             if reward_1 != 0.51: 
                 with open("global_plots/successful_demos.txt", "a") as f:
@@ -1201,7 +1183,7 @@ class DemoAggregate:
 
         first_segment_last_action = segment_dict[ordering[0]]["action"][-1] 
 
-        if self.add_jump_points != 0:
+        if self.add_jump_points:
             assert ordering[1] == "jump_point"
             second_segment_first_action = segment_dict[ordering[2]]["action"][0]
         else:
@@ -1213,8 +1195,11 @@ class DemoAggregate:
                 f.write(f"Demo {demo_0.demo_num}: {demo_0.valid_demo}, Demo {demo_1.demo_num}: {demo_1.valid_demo}\n")
                 f.write(f"Distance jumped between {demo_0.demo_num} and {demo_1.demo_num} is {distance_jumped}.\n")
 
-        if self.add_jump_points != 0:
+        if self.add_jump_points:
 
+            jump_distance = np.linalg.norm(first_segment_last_action - second_segment_first_action)
+
+            self.num_jump_points = min(max(int(jump_distance // 0.01), 1), 10)
 
             # Instead of just one point, we want to add self.add_jump_points number of points between the two segments.
 
@@ -1223,41 +1208,33 @@ class DemoAggregate:
             jump_obs = segment_dict[ordering[2]]["obs"][0]  # Same obs for all jump points
 
             # Generate evenly spaced actions between the two (excluding endpoints)
-            jump_actions = np.linspace(first_segment_last_action, second_segment_first_action, self.add_jump_points + 2)[1:-1]
+            jump_actions = np.linspace(first_segment_last_action, second_segment_first_action, self.num_jump_points+2)[1:-1]
 
             # Tile obs to match number of actions
-            jump_obs_stack = np.tile(jump_obs.reshape(1, -1), (self.add_jump_points, 1))
-            jump_action_stack = jump_actions.astype(np.float32).reshape(self.add_jump_points, -1)
+            jump_obs_stack = np.tile(jump_obs.reshape(1, -1), (self.num_jump_points, 1))
+            jump_action_stack = jump_actions.astype(np.float32).reshape(self.num_jump_points, -1)
 
             # Create a single jump_point entry
             jump_point = {
-                "obs": jump_obs_stack,      # Shape: (self.add_jump_points, obs_dim)
-                "action": jump_action_stack # Shape: (self.add_jump_points, action_dim)
+                "obs": jump_obs_stack,      # Shape: (self.num_jump_points, obs_dim)
+                "action": jump_action_stack # Shape: (self.num_jump_points, action_dim)
             }
 
             segment_dict["jump_point"] = jump_point
 
-
-
-            # original with just midpoint: 
-            # jump_action = (first_segment_last_action + second_segment_first_action) / 2.0 # calculate the midpoint action
-            # jump_obs = segment_dict[ordering[2]]["obs"][0] # copy obs
-
-            # jump_point = {
-            #     "obs": jump_obs.reshape(1, -1),  # Reshape to (1, 16)
-            #     "action": np.array(jump_action, dtype=np.float32).reshape(1, -1)
-            # }
-
-            # segment_dict["jump_point"] = jump_point # add jump point to ordering # TODO: Double check that this jump point is actually useful. 
-
             distance_jumped = np.linalg.norm(first_segment_last_action - jump_point["action"][0])
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"Demo {demo_0.demo_num}: {demo_0.valid_demo}, Demo {demo_1.demo_num}: {demo_1.valid_demo}\n")
-                f.write(f"Distance jumped between {demo_0.demo_num} and jump point is {distance_jumped}.\n")
+                f.write(f"Used {self.num_jump_points}. Distance jumped between {demo_0.demo_num} and jump point is {distance_jumped}.\n")
         
         # Dynamically construct the new trajectory
-        new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering], axis=0)
-        new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering], axis=0)
+        
+
+        new_obs = np.concatenate([segment_dict[segment]["obs"] for segment in ordering if len(segment_dict[segment]["obs"]) > 0], axis=0)
+
+        # TODO: I think we should eventually ensure that they aren't all empty but I'm going to leave it for now (since its more of a chunking)
+
+        new_action = np.concatenate([segment_dict[segment]["action"] for segment in ordering if len(segment_dict[segment]["action"]) > 0], axis=0)
 
         # NOTE: NEED TO ALSO APPEND TO EPSIODE_ENDS and update the zarr file for it to be useful for training
 
@@ -1275,6 +1252,13 @@ class DemoAggregate:
         (obs, reward, done, info) = final_status
 
         if reward >= 1:
+
+            # I'm going to consturct a dataset that will give the (model)
+
+
+
+
+
             episode_ends = np.array(self.zarr_abs['meta']['episode_ends'][-1] + (num_steps))
 
             # self.add_demo(new_obs, new_action, episode_ends ) # TODO: Get this working. Editing the zarr seems to introduce bugs to the code (observations end up looking very different.) 
@@ -1396,7 +1380,7 @@ class DemoAggregate:
             "-loop", "0", "global_plots/predicted_artificial_steps.mp4"
         ], check=True)
 
-def all_artificial_rollout(total_num_demos=None): 
+def all_artificial_rollout(total_num_demos=None, add_jump_points=True): 
     """
     Creates an artificial trajectory from all demonstrations and their closest demonstration. Creates both the forward and reverse trajectory and rolls it out."""
         
@@ -1405,7 +1389,7 @@ def all_artificial_rollout(total_num_demos=None):
         shutil.rmtree("global_plots")
     os.makedirs("global_plots", exist_ok=True)
 
-    demos = DemoAggregate(source_trajectory=False, rollout_source=False, add_jump_points=0)
+    demos = DemoAggregate(source_trajectory=False, rollout_source=False, add_jump_points=add_jump_points)
 
     if os.path.exists("sim_videos"):
         shutil.rmtree("sim_videos")
@@ -1422,7 +1406,8 @@ def all_artificial_rollout(total_num_demos=None):
     
     # Forward
 
-    total_successful = 0 
+    half_successful = 0 
+    full_succesful = 0
 
     if total_num_demos is None:
         total_num_demos = len(EPISODE_STARTS) - 1
@@ -1445,7 +1430,8 @@ def all_artificial_rollout(total_num_demos=None):
 
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}.\n\n")
-            total_successful += 1 if forward_reward > 0 else 0
+            half_successful += 1 if forward_reward == 0.49 else 0
+            full_succesful += 1 if forward_reward == 0.51 else 0
 
             ordering = demos.order['reverse']
             reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
@@ -1457,17 +1443,23 @@ def all_artificial_rollout(total_num_demos=None):
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}.\n\n")
 
-            total_successful += 1 if reverse_reward > 0 else 0
+            half_successful += 1 if reverse_reward == 0.49 else 0
+            full_succesful += 1 if reverse_reward == 0.51 else 0
 
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"\n\n")
 
             # Update progress bar
             pbar.update(1)
-            print(f"Total successful: {total_successful}/{(d+1) * 2}")
+            print(f"Full succesful: {full_succesful}/{(d+1) * 2}")
+            print(f"Half succesful: {half_successful}/{(d+1) * 2}")
 
     with open("global_plots/successful_demos.txt", "a") as f:
-        f.write(f"Total successful: {total_successful}/{total_num_demos * 2}\n")
+        f.write(f"Total full successful: {full_succesful}/{total_num_demos * 2}\n")
+        f.write(f"Total half successful: {half_successful}/{total_num_demos * 2}\n")
+  
+
+
 
         avg_dst_successful = demos.success_distance / demos.success_num
         avg_dst_half_successful = demos.half_success_distance / demos.half_success_num
@@ -1491,7 +1483,7 @@ def all_artificial_rollout(total_num_demos=None):
         f.write(f"Min distance for failed: {demos.fail_min}\n")
         f.write(f"Max distance for failed: {demos.fail_max}\n\n")
 
-def single_artificial_rollout_for(d=0): 
+def single_artificial_rollout_for(d=0, add_jump_points=True): 
 
     """
     Creates an artificial trajectory from d and its closest demonstration. Creates both the forward and reverse trajectory and rolls it out. 
@@ -1499,11 +1491,9 @@ def single_artificial_rollout_for(d=0):
         
     # Clear old plots
     
-    demos = DemoAggregate(add_jump_points=3)
+    demos = DemoAggregate(add_jump_points=add_jump_points)
 
     
-
-
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
     closest_envs = demos.print_closest_envs(target_demo_num=d, num_demos=1)
     demo_num_0 = d
@@ -1544,7 +1534,6 @@ def single_artificial_trajectory(d=1):
         shutil.rmtree("sim_videos")
     os.makedirs("sim_videos")
 
-
     # NOTE: Also lots of assumptions here about starting on the same path. Should probably enable the ability to filter similarity not just by the same starting direction/which block they go to first. 
 
     # Dictionary of all types of orderings:
@@ -1566,8 +1555,10 @@ def single_artificial_trajectory(d=1):
 
 def single_demo_rollout(d=0): 
 
+    add_jump_point = True
 
-    demos = DemoAggregate()
+
+    demos = DemoAggregate(add_jump_points=add_jump_point)
 
     demo = Demo(  
         obs=demos.obs,
@@ -1599,9 +1590,9 @@ def main():
 
 
     # single_demo_rollout(d=10)
-    single_demo_rollout(d=11)
-    # single_artificial_rollout_for(d=10)
-    # all_artificial_rollout(total_num_demos=20)
+    # single_demo_rollout(d=11)
+    # single_artificial_rollout_for(d=2, add_jump_points=True)
+    all_artificial_rollout(total_num_demos=None, add_jump_points=True)
 
 if __name__ == "__main__":
     main()
