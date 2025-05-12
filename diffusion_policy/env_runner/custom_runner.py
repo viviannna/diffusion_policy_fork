@@ -31,18 +31,48 @@ abs_action = True
 output_dir = "sim_videos"
 
 
-def env_fn(video_name, max_steps):
-    """Creates the environment with video recording"""
-    return MultiStepWrapper(
-        VideoRecordingWrapper(
-            FlattenObservation(
-                BlockPushMultimodal(
-                    control_frequency=task_fps,
-                    shared_memory=False,
-                    seed=seed,
-                    abs_action=abs_action
-                )
-            ),
+# def env_fn(video_name, max_steps):
+#     """Creates the environment with video recording"""
+#     return MultiStepWrapper(
+#         VideoRecordingWrapper(
+#             FlattenObservation(
+#                 BlockPushMultimodal(
+#                     control_frequency=task_fps,
+#                     shared_memory=False,
+#                     seed=seed,
+#                     abs_action=abs_action
+#                 )
+#             ),
+#             video_recoder=VideoRecorder.create_h264(
+#                 fps=fps,
+#                 codec='h264',
+#                 input_pix_fmt='rgb24',
+#                 crf=crf,
+#                 thread_type='FRAME',
+#                 thread_count=1
+#             ),
+#             file_path=f"{output_dir}/{video_name}.mp4", 
+#             steps_per_render=steps_per_render
+#         ),
+#         n_obs_steps=1,
+#         n_action_steps=1,
+#         max_episode_steps=max_steps
+#     )
+
+def env_fn(video_name, max_steps, record_video=False):
+    """Creates the environment, optionally with video recording."""
+    base_env = FlattenObservation(
+        BlockPushMultimodal(
+            control_frequency=task_fps,
+            shared_memory=False,
+            seed=seed,
+            abs_action=abs_action
+        )
+    )
+
+    if record_video:
+        base_env = VideoRecordingWrapper(
+            base_env,
             video_recoder=VideoRecorder.create_h264(
                 fps=fps,
                 codec='h264',
@@ -51,9 +81,12 @@ def env_fn(video_name, max_steps):
                 thread_type='FRAME',
                 thread_count=1
             ),
-            file_path=f"{output_dir}/{video_name}.mp4", 
+            file_path=f"{output_dir}/{video_name}.mp4",
             steps_per_render=steps_per_render
-        ),
+        )
+
+    return MultiStepWrapper(
+        base_env,
         n_obs_steps=1,
         n_action_steps=1,
         max_episode_steps=max_steps
@@ -70,7 +103,7 @@ def save_init_obs(init_obs):
     with open(INIT_OBS_FILE, "w") as f:
         json.dump(init_obs.tolist(), f)
 
-def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video_name="zarr_action_sim", plot_steps=False):
+def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video_name="zarr_action_sim", plot_steps=False, record_video=False):
     """
     Runs the block pushing environment using given observations and actions.
 
@@ -87,8 +120,10 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
         'action': action_dict.copy().reshape(num_steps, 1, 1, 2),  # Reshape to (steps, batch, 1, 2)
     }
 
+    rollout_obs = []
+
     # Initialize environment
-    env = env_fn(video_name, num_steps)
+    env = env_fn(video_name, num_steps, record_video=record_video)
 
     save_init_obs(init_obs)
     demo_num = hash(video_name)
@@ -123,7 +158,10 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
         pu.setup_full_trajectory_plot(obs_before=init_obs, demo_num=demo_num)
         
 
-    while not done:
+    # This should be the same length as the action_dict
+    # while not done:
+
+    for i in range(num_steps):
        
         
         batch = 0
@@ -132,6 +170,9 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
 
         # Take a step in the environment
         obs, reward, done, info = env.step(curr_action)
+        
+        rollout_obs.append(obs[0])  # Append the first batch of observations
+        
 
         if plot_steps:
             if step == 0:
@@ -168,7 +209,8 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
         # Log observation and actions per step in the json
 
         # pu.plot_effector_actions(action=curr_action[0], run_step=step, demo_num=demo_num, color='gradient', start_timestep=0)
-
+        
+        # Lowkey we should crop the action dictionary to be the length of the rollout_obs...
         if done:
             final_status = (obs, reward, done, info)
             if reward <= 0.0:
@@ -183,11 +225,15 @@ def rollout_demo(init_obs, num_steps, action_dict, output_dir="sim_videos",video
     
     # pu.finalize_full_trajectory_plot(obs=obs[0], demo_num=demo_num, coloring='gradient', custom_file_name="actual_artificial")
     # Stop recording and save video
-    env.env.video_recoder.stop()
+
+    if record_video:
+        env.env.video_recoder.stop()
     print(f"Video saved at: {output_dir}/{video_name}.mp4")
 
+    # Make rollout_obs same type as action_dict
+    rollout_obs = np.array(rollout_obs)
 
-    return final_status
+    return final_status, rollout_obs
 
 # def rollout_single_demo(init_obs, action_dict, num_jumps, output_dir="sim_videos", video_name="zarr_jump_rollout"):
 
