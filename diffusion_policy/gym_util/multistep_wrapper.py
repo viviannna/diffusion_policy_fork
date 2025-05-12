@@ -104,20 +104,25 @@ class MultiStepWrapper(gym.Wrapper):
         """
         for act in action:
             if len(self.done) > 0 and self.done[-1]:
+
+                print(f"Prior step marked done (self.done[-1])")
                 # termination
                 break
             observation, reward, done, info = super().step(act)
 
             self.obs.append(observation)
             self.reward.append(reward)
-            # if (self.max_episode_steps is not None) \
-            #     and (len(self.reward) >= self.max_episode_steps):
-            #     # truncation
-            #     done = True
 
-            # Override and shorten 
-            if (len(self.reward) >= 50):
+            
+            if (self.max_episode_steps is not None) \
+                and (len(self.reward) >= self.max_episode_steps):
+                # truncation
                 done = True
+
+            # End running early (could also modify the value of max_episode_steps in env_fn() in multimodal)
+            # # Override and shorten 
+            # if (len(self.reward) >= 50):
+            #     done = True
 
 
             self.done.append(done)

@@ -23,25 +23,52 @@ def is_successful(obs):
     
     return success, b0_in_target, b1_in_target
 
-def is_touching_block(obs):
+# def is_touching_block(curr_obs, init_obs):
+#     """
+#     Determines if the effector is touching a block.
+#     """
+
+#     effector = extract_effector_position(curr_obs)
+#     blocks = extract_block_position(curr_obs)
+
+#     touching_0 = False
+#     touching_1 = False
+
+#     TOLERANCE = 0.031
+
+
+#     if calculate_distance(effector, blocks[0]) <= TOLERANCE:
+#         touching_0 = True
+#     if calculate_distance(effector, blocks[1]) <= TOLERANCE:
+#         touching_1 = True
+#     return touching_0, touching_1
+
+def is_touching_block(init_obs, curr_obs, threshold=1e-3):
     """
-    Determines if the effector is touching a block.
+    Determines if each block has been 'touched', i.e., moved from its initial position.
+    
+    Args:
+        init_obs: The initial observation containing block positions.
+        current_obs: The current observation containing block positions.
+        threshold: Minimum movement (in distance) to consider a block touched.
+    
+    Returns:
+        touched_0, touched_1: Booleans indicating whether block 0 and 1 were touched.
     """
+    init_blocks = extract_block_position(init_obs)      # [(x0, y0), (x1, y1)]
+    curr_blocks = extract_block_position(curr_obs)   # [(x0', y0'), (x1', y1')]
 
-    effector = extract_effector_position(obs)
-    blocks = extract_block_position(obs)
+    touched_0 = (
+        calculate_distance(init_blocks[0], curr_blocks[0]) > threshold
+    )
+    touched_1 = (
+        calculate_distance(init_blocks[1], curr_blocks[1]) > threshold
+    )
 
-    touching_0 = False
-    touching_1 = False
+    # Based off def _compute_state in block_pushing_multimodal.py
 
-    TOLERANCE = 0.031
+    return touched_0, touched_1
 
-
-    if calculate_distance(effector, blocks[0]) <= TOLERANCE:
-        touching_0 = True
-    if calculate_distance(effector, blocks[1]) <= TOLERANCE:
-        touching_1 = True
-    return touching_0, touching_1
 
 
 def calculate_distance(p1, p2):
@@ -76,7 +103,10 @@ def extract_effector_position(obs_after):
     """
     Extracts effector position from observation data.
     """
-    effector = {'x': obs_after[6], 'y': obs_after[7]}
+    if len(obs_after) == 2:
+        effector = {'x': obs_after[0], 'y': obs_after[1]}
+    else:
+        effector = {'x': obs_after[6], 'y': obs_after[7]}
     return effector
 
 def get_blocks_to_target_distance(obs_after):
@@ -177,7 +207,7 @@ def draw_blocks(obs_before, ax, show_labels=False):
     for i, block in enumerate(blocks):
         draw_rectangle(
             x=block['x'], y=block['y'], orientation=block['orientation'], 
-            color=colors[i], label=labels[i], opacity=1, is_block=True, ax=ax
+            color=colors[i], label=labels[i], opacity=0.7, is_block=True, ax=ax
         )
 
     if show_labels:

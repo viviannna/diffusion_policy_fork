@@ -1,0 +1,4 @@
+file 'global_plots/artificial_1_demo0_pathA_before_k.png'
+file 'global_plots/artificial_2_demo0_pathA_after_k.png'
+file 'global_plots/artificial_3_demo0_pathB_before_k.png'
+file 'global_plots/artificial_4_demo0_pathB_after_k.png'

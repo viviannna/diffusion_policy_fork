@@ -33,6 +33,8 @@ import numpy as np
 from scipy.spatial import transform
 import pybullet
 import pybullet_utils.bullet_client as bullet_client
+import os 
+import json
 
 # pytype: skip-file
 BLOCK2_URDF_PATH = "third_party/py/envs/assets/block2.urdf"
@@ -176,8 +178,56 @@ class BlockPushMultimodal(block_pushing.BlockPush):
 
         self.step_simulation_to_stabilize()
 
+
+
+    def load_init_obs(self):
+        INIT_OBS_FILE = os.path.join(os.path.dirname(__file__), "init_obs.json")
+
+        if os.path.exists(INIT_OBS_FILE):
+            with open(INIT_OBS_FILE, "r") as f:
+                init_obs = json.load(f)
+            return np.array(init_obs, dtype=np.float32)
+        return None
+    
+    def _reset_block_poses_fixed(self, init_obs):
+
+        block_0 = {
+            'x' : init_obs[0],
+            'y' : init_obs[1],
+            'orientation' : init_obs[2]
+        }
+
+        block_1 = {
+            'x' : init_obs[3],
+            'y' : init_obs[4],
+            'orientation' : init_obs[5]
+        }
+
+        block_positions = [
+            [block_0['x'], block_0['y'], 0], 
+            [block_1['x'], block_1['y'], 0]
+        ]
+    
+        block_rotations = [block_0['orientation'], block_1['orientation']]
+
+        for idx, (pos, rot) in enumerate(zip(block_positions, block_rotations)):
+            block_translation = np.array(pos)
+            block_rotation = transform.Rotation.from_rotvec([0, 0, rot])
+
+            self._pybullet_client.resetBasePositionAndOrientation(
+                self._block_ids[idx],
+                block_translation.tolist(),
+                block_rotation.as_quat().tolist(),
+            )
+
     def _reset_block_poses(self, workspace_center_x):
         """Resets block poses."""
+
+        init_obs = self.load_init_obs()
+        if init_obs is not None:
+            self._reset_block_poses_fixed(self.load_init_obs())
+            return
+
 
         # Helper for choosing random block position.
         def _reset_block_pose(idx, add=0.0, avoid=None):
@@ -224,6 +274,7 @@ class BlockPushMultimodal(block_pushing.BlockPush):
         else:
             raise ValueError("could not find matching block")
         assert dist > MIN_BLOCK_DIST
+
 
     def _reset_target_poses(self, workspace_center_x):
         """Resets target poses."""
@@ -315,6 +366,9 @@ class BlockPushMultimodal(block_pushing.BlockPush):
             self._reset_object_poses(workspace_center_x, workspace_center_y)
 
         # else:
+
+
+
         self._target_poses = [
             self._get_target_pose(idx) for idx in self._target_ids
         ]
