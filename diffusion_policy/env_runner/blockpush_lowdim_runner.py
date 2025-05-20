@@ -147,6 +147,78 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
         self.obs_eef_target = obs_eef_target
 
 
+
+    # I think we need to create human_x and human_y and append it to the observation.
+
+            # So currently obs.shape is (56, 3, 16) = (number of batches, observation history, observation dim)
+
+            # For each batch: 
+                # obs[0]: we should apppend (0,0) (? Actually not quite sure what we should initialize it as. or maybe a vector between 0,0 and the current effector position representing human_x and human_y
+                # obs[1]: we should append a vector between obs[0]'s effector position and ours 
+                # obs[2] we should append a vector between obs[1]'s effector position and ours
+
+                # And then we probably want to normalize
+
+                # And then we want to introduce some noise to the human_x and human_y
+
+                # I think at some points we should introduce a lot more noise -- i don't know how well this will perform if we have likje noise thats super in the wrong direction. This is not yet training on if we change our minds - which also might be a problem. I wonder if i should put human intent in like the opposite direction. 
+
+    def append_human_intent(self, 
+        obs,
+        noise_std: float = 0.0,
+        noise_type: str = 'gaussian'
+    ):
+        """
+        Args:
+        obs        : np.ndarray or torch.Tensor of shape (B, H, 16)
+        noise_std  : standard deviation of added noise
+        noise_type : 'gaussian' or 'brownian'
+
+        Returns:
+        same type as obs, shape (B, H, 18)
+        """
+        # remember if it was numpy
+        was_numpy = isinstance(obs, np.ndarray)
+
+        # to tensor for computation
+        if was_numpy:
+            obs_t = torch.from_numpy(obs).float()
+        elif isinstance(obs, torch.Tensor):
+            obs_t = obs
+        else:
+            raise TypeError(f"obs must be np.ndarray or torch.Tensor, got {type(obs)}")
+
+        B, H, D = obs_t.shape
+        assert D == 16, f"Expected last-dim=16, got {D}"
+
+        # 1) extract effector_translation (dims 6:8)
+        eff = obs_t[:, :, 6:8]                          # (B, H, 2)
+
+        # 2) compute deltas
+        deltas = eff[:, 1:, :] - eff[:, :-1, :]         # (B, H-1, 2)
+        zeros  = torch.zeros(B, 1, 2, device=obs_t.device, dtype=obs_t.dtype)
+        intent = torch.cat([zeros, deltas], dim=1)      # (B, H, 2)
+
+        # 3) add noise
+        if noise_std > 0.0:
+            if noise_type == 'gaussian':
+                noise = torch.randn_like(intent) * noise_std
+            elif noise_type == 'brownian':
+                inc = torch.randn_like(intent) * noise_std
+                noise = torch.cumsum(inc, dim=1)
+            else:
+                raise ValueError(f"Unknown noise_type: {noise_type!r}")
+            intent = intent + noise
+
+        # 4) concatenate
+        out_t = torch.cat([obs_t, intent], dim=2)       # (B, H, 18)
+
+        # back to numpy if needed
+        if was_numpy:
+            return out_t.cpu().numpy()
+        return out_t
+
+
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
         dtype = policy.dtype
@@ -178,9 +250,9 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
             # init envs
             env.call_each('run_dill_function', 
                 args_list=[(x,) for x in this_init_fns])
-
-            # start rollout
             obs = env.reset()
+            
+            # Need to append the user input to the observation. 
             past_action = None
             policy.reset()
 
@@ -202,6 +274,12 @@ class BlockPushLowdimRunner(BaseLowdimRunner):
                 obs_dict = dict_apply(np_obs_dict, 
                     lambda x: torch.from_numpy(x).to(
                         device=device))
+                
+                # FINETUNE_FLAG
+                obs_dict['obs'] = self.append_human_intent(obs=obs_dict['obs'], noise_std=0.0, noise_type='gaussian')
+                assert obs_dict['obs'].shape[-1] == 18 
+
+                # I think this would be the place in eval where I can add a like controller
 
                 # run policy
                 with torch.no_grad():
