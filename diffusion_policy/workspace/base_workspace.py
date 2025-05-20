@@ -26,7 +26,8 @@ class BaseWorkspace:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
     
-    def run(self):
+
+    def run(self, finetune=False):
         """
         Create any resource shouldn't be serialized as local variables
         """
@@ -71,8 +72,17 @@ class BaseWorkspace:
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
-        return pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
-
+        
+        # Original, generic get_checkpoint_path function presumably used for training.
+        if tag == 'latest':
+            return pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
+        
+        # NOTE: Going to override the get checkpoint path to instead get the checkpoint that the paper published. In the future, you need to change this function per task. 
+        elif tag == 'best':
+            return pathlib.Path('/home/vlieu/diffusion_policy/blockpush_transformer_epoch=7950-test_mean_score=1.000.ckpt')
+        else:
+            raise ValueError(f"Unknown tag {tag} for checkpoint path")
+        
     def load_payload(self, payload, exclude_keys=None, include_keys=None, **kwargs):
         if exclude_keys is None:
             exclude_keys = tuple()
