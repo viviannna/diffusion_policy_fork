@@ -59,12 +59,16 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
         self.global_step = 0
         self.epoch = 0
 
-    def run(self):
+    def run(self, finetune=False):
         cfg = copy.deepcopy(self.cfg)
 
         # resume training
         if cfg.training.resume:
-            lastest_ckpt_path = self.get_checkpoint_path()
+            if finetune: 
+                tag = 'best'
+            else:
+                tag = 'latest'
+            lastest_ckpt_path = self.get_checkpoint_path(tag=tag)
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
                 self.load_checkpoint(path=lastest_ckpt_path)
@@ -79,10 +83,16 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
+        
+        # Check if the finetune field exists in the config
+        # if 'finetune' in cfg.keys():
+        #     self.model.finetune = cfg.finetune
 
         self.model.set_normalizer(normalizer)
         if cfg.training.use_ema:
+            # self.ema_model.finetune = cfg.finetune
             self.ema_model.set_normalizer(normalizer)
+            
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -213,7 +223,7 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
 
                 # run rollout
                 if (self.epoch % cfg.training.rollout_every) == 0:
-                    runner_log = env_runner.run(policy)
+                    runner_log = env_runner.run(policy) # Using our current model to generate rollouts -- we are evaluating how good this model is
                     # log all
                     step_log.update(runner_log)
 
