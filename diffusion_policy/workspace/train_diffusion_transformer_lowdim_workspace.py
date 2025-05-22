@@ -68,6 +68,9 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
                 tag = 'best'
             else:
                 tag = 'latest'
+
+            # FINETUNE_FLAG
+            assert finetune
             lastest_ckpt_path = self.get_checkpoint_path(tag=tag)
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
@@ -92,7 +95,41 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
         if cfg.training.use_ema:
             # self.ema_model.finetune = cfg.finetune
             self.ema_model.set_normalizer(normalizer)
+        
+        # FINETUNE_FLAG: Restart state for the optimizer so I can work with 18 input size now.
+        
+        new_groups = []
+        for pg in self.optimizer.param_groups:
+            # include 'initial_lr' here as well
+            spec = {
+                k: pg[k]
+                for k in ('lr',
+                        'initial_lr',     # <— add this
+                        'betas',
+                        'weight_decay',
+                        'eps',
+                        'amsgrad',
+                        'capturable',
+                        'maximize',
+                        'foreach')
+                if k in pg
+            }
+
+            # FINETUNE_FLAG: Set the learning rate to something that is better for finetuning
+            spec['lr'] = 0.00001
             
+            new_groups.append({
+                'params': pg['params'],
+                **spec
+            })
+
+        self.optimizer = torch.optim.AdamW(new_groups)
+        # now initial_lr is present, so your LambdaLR (cosine + warmup) will resume cleanly
+
+
+        # FINETUNE_FLAG: Reset global step so that all the shedulers restart for finetuning
+        self.global_step = 0
+
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -104,7 +141,10 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
                     // cfg.training.gradient_accumulate_every,
             # pytorch assumes stepping LRScheduler every epoch
             # however huggingface diffusers steps it every batch
-            last_epoch=self.global_step-1
+            # last_epoch=self.global_step-1
+            # FINETUNE_FLAG: Change the last epoch so that the scheduler restarts for finetuning
+
+            last_epoch=-1
         )
 
         # configure ema
@@ -180,7 +220,7 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                            self.optimizer.step()
+                            self.optimizer.step() # ERROR
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
