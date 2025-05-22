@@ -162,65 +162,70 @@ EPISODE_STARTS = [0,   104,    227,    352,    461,    587,    695,    816,    9
 # Create Zarr Store for Artificial Demos
 # ------------------------------------------------------------------
 
+
+
 def init_artificial_zarr(save_path, obs_dim, action_dim):
     """
-    Initializes an empty Zarr store for storing artificial demos.
+    Initializes an empty Zarr store with:
+    - 'data/obs' (N, obs_dim)
+    - 'data/action' (N, 2)
+    - 'meta/episode_ends' (1-indexed, inclusive ends)
     """
     os.makedirs(save_path, exist_ok=True)
-    zarr_store = zarr.group(store=zarr.DirectoryStore(save_path), overwrite=True)
+    root = zarr.group(store=zarr.DirectoryStore(save_path), overwrite=True)
 
-    zarr_store.create_dataset(
+    data_group = root.require_group('data')
+    data_group.create_dataset(
         name='obs',
         shape=(0, obs_dim),
         maxshape=(None, obs_dim),
         chunks=(1024, obs_dim),
         dtype='f4'
     )
-
-    zarr_store.create_dataset(
+    data_group.create_dataset(
         name='action',
-        shape=(0, 1, 1, action_dim),
-        maxshape=(None, 1, 1, action_dim),
-        chunks=(1024, 1, 1, action_dim),
+        shape=(0, action_dim),
+        maxshape=(None, action_dim),
+        chunks=(1024, action_dim),
         dtype='f4'
     )
 
-    meta = zarr_store.require_group('meta')
-    meta.create_dataset(
-        name='EPISODE_STARTS',
+    meta_group = root.require_group('meta')
+    meta_group.create_dataset(
+        name='episode_ends',
         shape=(0,),
         maxshape=(None,),
         chunks=(1024,),
         dtype='i4'
     )
 
-    print(f"✅ Initialized artificial Zarr store at: {save_path}")
-    return zarr_store
+    #print(f"✅ Initialized artificial Zarr store with 'episode_ends' at: {save_path}")
+    return root
 
 
 def append_demo_to_zarr(zarr_store, obs_with_intent, action_dict):
     """
-    Appends a single demonstration's obs and action to an existing Zarr store.
+    Appends a single demo's data to 'data/', and updates 'meta/episode_ends' (1-indexed inclusive ends).
+    Ensures action shape is always (N, 2).
     """
-    obs_array = np.array(obs_with_intent, dtype='f4')  # (T, obs_dim+2)
-    action_array = action_dict.astype('f4').reshape(obs_array.shape[0], 1, 1, -1)
+    obs_array = np.array(obs_with_intent, dtype='f4')
+    action_array = action_dict.astype('f4').reshape(obs_array.shape[0], -1)
+    assert action_array.shape[1] == 2, f"Action must have shape (N, 2), got {action_array.shape}"
 
-    obs_ds = zarr_store['obs']
-    action_ds = zarr_store['action']
-    ep_start_ds = zarr_store['meta']['EPISODE_STARTS']
+    obs_ds = zarr_store['data']['obs']
+    action_ds = zarr_store['data']['action']
+    ep_end_ds = zarr_store['meta']['episode_ends']
 
-    # Compute new episode start
-    new_start = obs_ds.shape[0]
+    prev_end = obs_ds.shape[0]
+    new_end = prev_end + obs_array.shape[0]  # exclusive
 
-    # Resize datasets by specifying full new shapes
-    obs_ds.resize((new_start + obs_array.shape[0], obs_array.shape[1]))
-    action_ds.resize((new_start + action_array.shape[0], 1, 1, action_array.shape[3]))
-    ep_start_ds.resize((ep_start_ds.shape[0] + 1,))
+    obs_ds.resize((new_end, obs_array.shape[1]))
+    action_ds.resize((new_end, action_array.shape[1]))
+    ep_end_ds.resize((ep_end_ds.shape[0] + 1,))
 
-    # Append data
-    obs_ds[new_start:] = obs_array
-    action_ds[new_start:] = action_array
-    ep_start_ds[-1] = new_start
+    obs_ds[prev_end:new_end] = obs_array
+    action_ds[prev_end:new_end] = action_array
+    ep_end_ds[-1] = new_end  # store as 1-indexed inclusive
 
 
 # ------------------------------------------------------------------
@@ -351,14 +356,14 @@ class Demo:
                     step_distance = pu.get_step_distance(self.obs[step], self.obs[step - 1])
                 cumulative_distance += step_distance
 
-                # print(f"[A] step {step}: step_distance={step_distance:.4f}, total_distance={total_distance:.4f}, "
+                # #print(f"[A] step {step}: step_distance={step_distance:.4f}, total_distance={total_distance:.4f}, "
                 # f"cumulative={cumulative_distance:.4f} ({100 * cumulative_distance / total_distance:.2f}%), "
                 # f"target=50% (half_distance={half_distance:.4f})")
 
                 if cumulative_distance >= half_distance:
                     # switch_step_A is relative to zero
                     self.switch_step_A = (step - self.start_timestep)
-                    # print(f"switch_step_A: {self.switch_step_A}")
+                    # #print(f"switch_step_A: {self.switch_step_A}")
                     break
 
 
@@ -390,7 +395,7 @@ class Demo:
 
                 cumulative_distance_B += step_distance_B
 
-                # print(f"[B] step {step}: step_distance={step_distance_B:.4f}, total_distance={total_distance_B:.4f}, "
+                # #print(f"[B] step {step}: step_distance={step_distance_B:.4f}, total_distance={total_distance_B:.4f}, "
                 # f"cumulative={cumulative_distance_B:.4f} ({100 * cumulative_distance_B / total_distance_B:.2f}%), "
                 # f"target=50% (half_distance_B={half_distance_B:.4f})")
 
@@ -399,7 +404,7 @@ class Demo:
                     # switch_step_B is relative to zero
                     
                     self.switch_step_B = (step - self.pivot_point)
-                    # print(f"switch_step_B: {self.switch_step_B}")
+                    # #print(f"switch_step_B: {self.switch_step_B}")
                     break
         
 
@@ -513,16 +518,16 @@ class Demo:
 
         self.set_switch_step_k(type_k=type_k, switch_step_k=switch_step_k)
         
-        # print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
+        # #print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks}, "
         #       f"one_block={self.one_block}, pivot={self.pivot_point}, "
         #       f"both_blocks={self.both_blocks}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
         # Account for the starting step
 
-        print(f"[Demo {self.demo_num}] start_timestep={self.start_timestep}, end_timestep={self.end_timestep} no_blocks={self.no_blocks - self.start_timestep}, "
-              f"one_block={self.one_block - self.start_timestep}, pivot={self.pivot_point - self.start_timestep}, "
-              f"both_blocks={self.both_blocks - self.start_timestep}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
+        #print(f"[Demo {self.demo_num}] start_timestep={self.start_timestep}, end_timestep={self.end_timestep} no_blocks={self.no_blocks - self.start_timestep}, "
+            #   f"one_block={self.one_block - self.start_timestep}, pivot={self.pivot_point - self.start_timestep}, "
+            #   f"both_blocks={self.both_blocks - self.start_timestep}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
 
-        # print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks - self.start_timestep-1}, "f"one_block={self.one_block - self.start_timestep-1}, pivot={self.pivot_point - self.start_timestep-1}, "
+        # #print(f"[Demo {self.demo_num}] no_blocks={self.no_blocks - self.start_timestep-1}, "f"one_block={self.one_block - self.start_timestep-1}, pivot={self.pivot_point - self.start_timestep-1}, "
         #       f"both_blocks={self.both_blocks - self.start_timestep-1}", f"switch_step_A={self.switch_step_A}", f"switch_step_B={self.switch_step_B}")
         
 
@@ -623,10 +628,10 @@ class Demo:
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1])
 
             if step == self.first_touch_A:
-                # print(f"First touch 0 at {step}")
+                # #print(f"First touch 0 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
             elif step == self.first_touch_B:
-                # print(f"First touch 1 at {step}")
+                # #print(f"First touch 1 at {step}")
                 pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange') 
 
     def color_code_at_k(self, plot_trajectory=False):
@@ -662,11 +667,11 @@ class Demo:
 
             if plot_trajectory:
                 if step == self.first_touch_0:
-                    # Print first touch (accounting for the fact that we start at start_timestep)
-                    print(f"First touch 0 at {step-self.start_timestep}")
+                    # #print first touch (accounting for the fact that we start at start_timestep)
+                    #print(f"First touch 0 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
                 elif step == self.first_touch_1:
-                    print(f"First touch 1 at {step-self.start_timestep}")
+                    #print(f"First touch 1 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
 
             # Assign colors based on labels
@@ -724,11 +729,11 @@ class Demo:
 
             if plot_trajectory:
                 if step == self.first_touch_0:
-                    # Print first touch (accounting for the fact that we start at start_timestep)
-                    print(f"First touch 0 at {step-self.start_timestep}")
+                    # #print first touch (accounting for the fact that we start at start_timestep)
+                    #print(f"First touch 0 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='blue')
                 elif step == self.first_touch_1:
-                    print(f"First touch 1 at {step-self.start_timestep}")
+                    #print(f"First touch 1 at {step-self.start_timestep}")
                     pu.arrow_to_point(demo_num=self.demo_num, x_target=curr_action[0], y_target=curr_action[1], color='orange')
 
             # Assign colors based on labels
@@ -1107,13 +1112,13 @@ class DemoAggregate:
         # Get the target environment data and the closest few
         target_env_data, closest_envs = self.get_closest_envs(target_demo_num, num_demos)
 
-        print(f"\n--- Target Environment: Demo {target_env_data['demo_idx']} ---")
-        print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
+        #print(f"\n--- Target Environment: Demo {target_env_data['demo_idx']} ---")
+        #print(f"Start={target_env_data['start_timestep']}, End={target_env_data['end_timestep']}")
 
         for i in range(len(closest_envs)):
             env_data = closest_envs[i]
-            print(f"\n--- Closest Environment {i+1}: Demo {env_data['demo_idx']} ---")
-            print(f"Start={env_data['start_timestep']}, End={env_data['end_timestep']}, Distance={env_data['distance']:.2f}")
+            #print(f"\n--- Closest Environment {i+1}: Demo {env_data['demo_idx']} ---")
+            #print(f"Start={env_data['start_timestep']}, End={env_data['end_timestep']}, Distance={env_data['distance']:.2f}")
 
         return closest_envs
     
@@ -1139,6 +1144,149 @@ class DemoAggregate:
         else:
             assert False, f"Unknown reward: {reward}"
     
+    # def add_intent(self, segment_dict, ordering, num_jump_points, obs, action):
+    #     """
+    #     Adds human intent to the observations. 
+    #     No human intent is represented as a (0,0) vector. Otherwise the (normalized) vector between the current and next observation is added to the observation. Human intent is added for the first step, all jump points, and the point directly after the jump points.
+        
+    #     Arguments:
+    #     - segment_dict: Dictionary containing segments and their corresponding observations.
+    #     - ordering: List of segments in the order they should be processed.
+    #     - num_jump_points: Number of jump points in the segment.
+    #     - obs: List of observations to which human intent will be added.
+       
+        
+    #     """
+
+    #     # Basically, I want to go through all of the observation and and add a human intent
+
+    #     # If we are at the first step or if we are in the jump points, we should have a direction as our intent
+
+    #     # If not, we should have a (0,0) vector as our intent
+
+    #     # Create a list of the steps at which I would want to include intent. 
+    #     # 1. Start
+    #     # 2. All the jump points
+    #     # 3. The point directly after jump points
+
+
+    #     assert "jump_point" in ordering, "Jump point not in ordering"
+    #     intent_steps = [0]
+
+    #     ordering_jump_idx = ordering.index('jump_point')
+
+    #     steps_before = 0 
+    #     steps_after = 0 
+    #     for segment_i in range(len(ordering)):
+
+    #         if segment_i < ordering_jump_idx:
+    #             steps_before += len(segment_dict[ordering[segment_i]]["obs"])
+    #         elif segment_i > ordering_jump_idx: 
+    #             steps_after += len(segment_dict[ordering[segment_i]]["obs"])
+
+    #     obs_with_intent = []
+            
+    #     for i in range(len(obs)):
+
+    #         # Default intent value (representing no input)
+    #         intent = np.array([0, 0], dtype=np.float32)
+
+    #         if i == 0: 
+
+    #             # Intent is the direction of between obs[0] and obs[1]
+
+    #             # NOTE: This should actually probably just be the action vector of the first step maybe?? Or using the obs might be fine as long as we are using the rolled out observation. 
+
+    #             effector_curr = np.array((obs[i][6], obs[i][7]))
+    #             effector_next = np.array((obs[i+1][6], obs[i+1][7]))
+
+    #             intent = effector_next - effector_curr
+    #             # Normalize the direction vector
+    #             intent = intent / np.linalg.norm(intent)
+
+    #         elif i in range(steps_before+1, steps_before+num_jump_points+2):
+            
+    #             # Intent is the direction of between obs[i] and obs[i+1]
+
+    #             effector_curr = np.array((obs[i][6], obs[i][7]))
+    #             effector_next = np.array((obs[i+1][6], obs[i+1][7]))
+
+    #             intent = effector_next - effector_curr
+    #             # Normalize the direction vector
+    #             intent = intent / np.linalg.norm(intent)
+
+    #         # assert intent is not nan
+    #         assert not np.isnan(intent).any(), f"Intent is NaN at index {i}"
+
+    #         extended = np.concatenate((obs[i], intent))
+    #         obs_with_intent.append(extended)
+        
+    #     return obs_with_intent
+
+                
+            
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+    #     # assert "jump_point" in ordering
+    #     # jump_idx = ordering.index('jump_point')
+    #     # segment_before = ordering[jump_idx - 1]
+    #     # segment_after = ordering[jump_idx + 1]
+        
+
+    #     # #print(f"Jumping from {segment_before} to {segment_after}")
+
+    #     # # THIS IS JUST CREATING ONE DATA POINT 
+    #     # # Forward
+    #     # if segment_before == "demo0_pathA_before_k":
+    #     #     model_next_segment = "demo0_pathA_after_k"
+    #     #     # This is not actually the output of a model, it's the output of a human demonstration. 
+    #     #     model_predicted_action = segment_dict[model_next_segment]["action"][0]
+    #     # # Reverse
+    #     # elif segment_before == "demo1_pathA_before_k":
+    #     #     model_next_segment = "demo1_pathA_after_k"
+    #     #     model_predicted_action = segment_dict[model_next_segment]["action"][0]
+    #     # else:
+    #     #     assert False, f"Unknown segment before: {segment_before}"
+
+    #     #  # Okay so now we have the action that the model wants to take
+
+    #     # # But then we actually want to have a jump point and change direction. Do we only want to have one of these?? Technically there are many jump steps. I guess for now, we can train it to the first one. 
+    #     # adjusted_action = segment_dict["jump_point"]["action"][0]
+
+    #     # # So to get it to be the adjusted action, we need to incorporate human intent. I'm going to represent my human intent as a vector betweeen the splice points (without the intermediary jump points) (though lowkey I think they're going to be the same vector....????? not necessarily)
+
+    #     # human_intent = second_segment_first_action - first_segment_last_action
+
+    #     # # I'll add the observation dictionary here, just in case I want to decide to condition on it later. 
+
+    #     # model_observation = segment_dict[segment_before]["obs"][-1]
+
+    #     # sample = {
+    #     #     "model_predicted_action": model_predicted_action,
+    #     #     "model_observation": model_observation,
+    #     #     "human_intent": human_intent,
+    #     #     "adjusted_action": adjusted_action
+    #     # }
+
+    #     # jump_samples.append(sample)
+
+        
     def add_intent(self, segment_dict, ordering, num_jump_points, obs, action):
         """
         Adds human intent to the observations. 
@@ -1183,32 +1331,22 @@ class DemoAggregate:
             
         for i in range(len(obs)):
 
-            # Default intent value (representing no input)
-            intent = np.array([0, 0], dtype=np.float32)
-
-            if i == 0: 
-
-                # Intent is the direction of between obs[0] and obs[1]
-
-                # NOTE: This should actually probably just be the action vector of the first step maybe?? Or using the obs might be fine as long as we are using the rolled out observation. 
-
-                effector_curr = np.array((obs[i][6], obs[i][7]))
-                effector_next = np.array((obs[i+1][6], obs[i+1][7]))
-
-                intent = effector_next - effector_curr
-                # Normalize the direction vector
-                intent = intent / np.linalg.norm(intent)
-
-            elif i in range(steps_before+1, steps_before+num_jump_points+2):
             
-                # Intent is the direction of between obs[i] and obs[i+1]
+            # Intent is the direction of between obs[i] and obs[i+1]
 
+            # if we are on the last one, just copy the intent of the prev?? 
+            if i == len(obs) - 1:
+                effector_curr = np.array((obs[i-1][6], obs[i-1][7]))
+                effector_next = np.array((obs[i][6], obs[i][7]))
+            else:
                 effector_curr = np.array((obs[i][6], obs[i][7]))
                 effector_next = np.array((obs[i+1][6], obs[i+1][7]))
 
-                intent = effector_next - effector_curr
-                # Normalize the direction vector
-                intent = intent / np.linalg.norm(intent)
+            
+
+            intent = effector_next - effector_curr
+            # Normalize the direction vector
+            intent = intent / np.linalg.norm(intent)
 
             # assert intent is not nan
             assert not np.isnan(intent).any(), f"Intent is NaN at index {i}"
@@ -1224,62 +1362,6 @@ class DemoAggregate:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-        # assert "jump_point" in ordering
-        # jump_idx = ordering.index('jump_point')
-        # segment_before = ordering[jump_idx - 1]
-        # segment_after = ordering[jump_idx + 1]
-        
-
-        # print(f"Jumping from {segment_before} to {segment_after}")
-
-        # # THIS IS JUST CREATING ONE DATA POINT 
-        # # Forward
-        # if segment_before == "demo0_pathA_before_k":
-        #     model_next_segment = "demo0_pathA_after_k"
-        #     # This is not actually the output of a model, it's the output of a human demonstration. 
-        #     model_predicted_action = segment_dict[model_next_segment]["action"][0]
-        # # Reverse
-        # elif segment_before == "demo1_pathA_before_k":
-        #     model_next_segment = "demo1_pathA_after_k"
-        #     model_predicted_action = segment_dict[model_next_segment]["action"][0]
-        # else:
-        #     assert False, f"Unknown segment before: {segment_before}"
-
-        #  # Okay so now we have the action that the model wants to take
-
-        # # But then we actually want to have a jump point and change direction. Do we only want to have one of these?? Technically there are many jump steps. I guess for now, we can train it to the first one. 
-        # adjusted_action = segment_dict["jump_point"]["action"][0]
-
-        # # So to get it to be the adjusted action, we need to incorporate human intent. I'm going to represent my human intent as a vector betweeen the splice points (without the intermediary jump points) (though lowkey I think they're going to be the same vector....????? not necessarily)
-
-        # human_intent = second_segment_first_action - first_segment_last_action
-
-        # # I'll add the observation dictionary here, just in case I want to decide to condition on it later. 
-
-        # model_observation = segment_dict[segment_before]["obs"][-1]
-
-        # sample = {
-        #     "model_predicted_action": model_predicted_action,
-        #     "model_observation": model_observation,
-        #     "human_intent": human_intent,
-        #     "adjusted_action": adjusted_action
-        # }
-
-        # jump_samples.append(sample)
 
 
     
@@ -1335,7 +1417,7 @@ class DemoAggregate:
         demo_num_0 = EPISODE_STARTS.index(start_0)
         demo_num_1 = EPISODE_STARTS.index(start_1)
 
-        print(f"\n\nCreating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
+        #print(f"\n\nCreating artificial trajectory from demos {demo_num_0} and {demo_num_1} with ordering {ordering}")
 
         # Extract first demonstration
         demo_0 = Demo(
@@ -1516,7 +1598,7 @@ class DemoAggregate:
 
         # TODO: Need to use the action dictionary (which is just a series of steps) to roll out and get the new, corresponding observation dictionary. (rollout_obs) 
 
-        print(f"Total distance jumped: {distance_jumped}, sub jump distance: {distance_jumped / self.num_jump_points}")
+        #print(f"Total distance jumped: {distance_jumped}, sub jump distance: {distance_jumped / self.num_jump_points}")
 
         if reward >= 0.5 and self.add_jump_points: 
             obs_with_intent = self.add_intent(segment_dict=segment_dict, ordering=ordering, num_jump_points=self.num_jump_points, obs=rollout_obs, action=new_action)
@@ -1544,19 +1626,19 @@ class DemoAggregate:
 
     def add_demo(self, new_obs, new_action, episode_ends):
 
-        print(f"Original obs shape: {self.zarr_abs['data']['obs'].shape}")
-        print(f"Original action shape: {self.zarr_abs['data']['action'].shape}")
-        print(f"Original episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
-        print(f"Original episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")
+        #print(f"Original obs shape: {self.zarr_abs['data']['obs'].shape}")
+        #print(f"Original action shape: {self.zarr_abs['data']['action'].shape}")
+        #print(f"Original episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
+        #print(f"Original episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")
 
         self.zarr_abs['data']['obs'].append(new_obs)
         self.zarr_abs['data']['action'].append(new_action)
         self.zarr_abs['meta']['episode_ends'].append(episode_ends, axis=0)
 
-        print(f"New obs shape: {self.zarr_abs['data']['obs'].shape}")
-        print(f"New action shape: {self.zarr_abs['data']['action'].shape}")
-        print(f"New episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
-        print(f"New episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")       
+        #print(f"New obs shape: {self.zarr_abs['data']['obs'].shape}")
+        #print(f"New action shape: {self.zarr_abs['data']['action'].shape}")
+        #print(f"New episode_ends shape: {self.zarr_abs['meta']['episode_ends'].shape}")
+        #print(f"New episode_ends: {self.zarr_abs['meta']['episode_ends'][-1]}")       
 
     def loop_through_ordering(self, ordering, group_name="artificial"):
         """
@@ -1569,7 +1651,7 @@ class DemoAggregate:
         for i in range(1, len(ordering) + 1):
             sub_ordering = ordering[:i]
             name = f"{sub_ordering[-1]}"
-            print("Subordering: ", sub_ordering)
+            #print("Subordering: ", sub_ordering)
         
             self.create_artificial_demo(start_0=0, start_1=76912, ordering=sub_ordering, custom_file_name=f"{group_name}_{i}_{name}")
 
@@ -1646,7 +1728,7 @@ def all_artificial_rollout(total_num_demos=None, add_jump_points=True):
             ordering = demos.order['forward']
             forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=False, direction="f")
 
-            print(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}")
+            #print(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}")
 
             with open("global_plots/successful_demos.txt", "a") as f:
                 f.write(f"Demo {d} + {demo_num_1} (forward) worked with reward {forward_reward}.\n\n")
@@ -1657,7 +1739,7 @@ def all_artificial_rollout(total_num_demos=None, add_jump_points=True):
             reverse_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, 
             custom_file_name=f"predicted_artificial", rollout_source_demos=False, direction="r")
      
-            print(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}")
+            #print(f"Demo {d} + {demo_num_1} (reverse) worked with reward {reverse_reward}")
 
             # create a txt log file and start appending which demos worked 
             with open("global_plots/successful_demos.txt", "a") as f:
@@ -1672,18 +1754,18 @@ def all_artificial_rollout(total_num_demos=None, add_jump_points=True):
             # Update progress bar
             pbar.update(1)
             print(f"Full succesful: {full_succesful}/{(d+1) * 2}")
-            print(f"Half succesful: {half_successful}/{(d+1) * 2}")
+            #print(f"Half succesful: {half_successful}/{(d+1) * 2}")
 
     with open("global_plots/successful_demos.txt", "a") as f:
         f.write(f"Total full successful: {full_succesful}/{total_num_demos * 2}\n")
         f.write(f"Total half successful: {half_successful}/{total_num_demos * 2}\n")
-  
-
-
 
         avg_dst_successful = demos.success_distance / demos.success_num
         avg_dst_half_successful = demos.half_success_distance / demos.half_success_num
-        avg_dst_failed = demos.fail_distance / demos.fail_num
+        if demos.fail_num == 0: 
+            avg_dst_failed = 0
+        else: 
+            avg_dst_failed = demos.fail_distance / demos.fail_num
 
         f.write("Success statistics:\n")
         f.write(f"Number of successful: {demos.success_num}\n")
@@ -1725,7 +1807,7 @@ def single_artificial_rollout_for(d=0, add_jump_points=True):
     ordering = demos.order['forward']
     forward_reward = demos.create_artificial_demo(start_0=start_0, start_1=start_1, ordering=ordering, custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="f")
     if forward_reward != 0:
-        print(f"For demo {d}, forward worked with reward {forward_reward}")
+        #print(f"For demo {d}, forward worked with reward {forward_reward}")
 
         with open("global_plots/successful_demos.txt", "a") as f:
             f.write(f"Demo {d} forward worked with reward {forward_reward}.\n")
@@ -1735,7 +1817,7 @@ def single_artificial_rollout_for(d=0, add_jump_points=True):
     custom_file_name=f"predicted_artificial", rollout_source_demos=True, direction="r")
     if reverse_reward != 0:
     
-        print(f"For demo {d}, reverse worked with reward {reverse_reward}")
+        #print(f"For demo {d}, reverse worked with reward {reverse_reward}")
 
         # create a txt log file and start appending which demos worked 
         with open("global_plots/successful_demos.txt", "a") as f:
@@ -1791,7 +1873,7 @@ def single_demo_rollout(d=0):
     (obs, reward, done, info), _ = custom_runner.rollout_demo(demo.obs[demo.start_timestep], demo.end_timestep - demo.start_timestep + 1, demo.action[demo.start_timestep:demo.end_timestep+1], video_name=f"demo_{d}_rollout")
     
     demo.succeeds = reward > 0.5
-    print(f"Demo {d} finished with reward {reward}")
+    #print(f"Demo {d} finished with reward {reward}")
 
     if demo.succeeds:
 
@@ -1811,16 +1893,16 @@ def main():
         shutil.rmtree("sim_videos")
     os.makedirs("sim_videos")
 
+    print("Don't forget to delete the old artificial_action.zarr file if you want to start fresh.")
 
     # single_demo_rollout(d=10)
     # single_demo_rollout(d=11)
     # single_artificial_rollout_for(d=2, add_jump_points=True)
     global ARTIFICIAL_ZARR
-    ARTIFICIAL_ZARR = init_artificial_zarr("artificial_demos.zarr", obs_dim=18, action_dim=2)
-    all_artificial_rollout(total_num_demos=None, add_jump_points=True)
 
-    print("should be able to get the zarr now")
-  
+
+    ARTIFICIAL_ZARR = init_artificial_zarr("artificial_demos.zarr", obs_dim=18, action_dim=2)
+    all_artificial_rollout(total_num_demos=None, add_jump_points=True)  
 
 if __name__ == "__main__":
     main()
