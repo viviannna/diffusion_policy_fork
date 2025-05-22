@@ -79,7 +79,7 @@ class BaseWorkspace:
         
         # NOTE: Going to override the get checkpoint path to instead get the checkpoint that the paper published. In the future, you need to change this function per task. 
         elif tag == 'best':
-            return pathlib.Path('/home/vlieu/diffusion_policy/blockpush_transformer_epoch=7950-test_mean_score=1.000.ckpt')
+            return pathlib.Path('/home/vlieu/diffusion_policy/data/blockpush_transformer_epoch=7950-test_mean_score=1.000.ckpt')
         else:
             raise ValueError(f"Unknown tag {tag} for checkpoint path")
         
@@ -89,9 +89,47 @@ class BaseWorkspace:
         if include_keys is None:
             include_keys = payload['pickles'].keys()
 
+        # FINETUNE_FLAG: Catch errors related to size mismatches (when going from 16 to 18). These changes are hyperspecific to this task/checkpoint. 
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
-                self.__dict__[key].load_state_dict(value, **kwargs)
+                try:
+                    model = self.__dict__[key]
+
+                    # Patch input-dim related weights if needed
+                    patched_sd = {}
+                    for name, param in value.items():
+                        if name.endswith("cond_obs_emb.weight") and param.shape == (256, 16):
+                            new_param = torch.randn(256, 18, dtype=param.dtype, device=param.device)
+                            new_param[:, :16] = param
+                            print(f"Patching {name}: (256, 16) -> (256, 18)")
+                            patched_sd[name] = new_param
+                        elif name.endswith("cond_obs_emb.bias") and param.shape == (256,):
+                            patched_sd[name] = param
+                        elif name.endswith("normalizer.params_dict.obs.offset") and param.shape == (16,):
+                            new_param = torch.randn(18, dtype=param.dtype, device=param.device)
+                            new_param[:16] = param
+                            patched_sd[name] = new_param
+                            print(f"Patching {name}: (16,) -> (18,)")
+                        elif name.endswith("normalizer.params_dict.obs.scale") and param.shape == (16,):
+                            new_param = torch.ones(18, dtype=param.dtype, device=param.device)
+                            new_param[:16] = param
+                            patched_sd[name] = new_param
+                            print(f"Patching {name}: (16,) -> (18,)")
+                        elif "normalizer.params_dict.obs.input_stats" in name and param.shape == (16,):
+                            new_param = torch.randn(18, dtype=param.dtype, device=param.device)
+                            new_param[:16] = param
+                            patched_sd[name] = new_param
+                            print(f"Patching {name}: (16,) -> (18,)")
+                        else:
+                            patched_sd[name] = param
+
+                    model.load_state_dict(patched_sd, **kwargs)
+
+                except RuntimeError as e:
+                    print(f"[load_payload] Could not load state_dict for {key}: {e}")
+                    raise
+
+        
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
